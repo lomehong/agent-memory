@@ -297,6 +297,12 @@ func (s *SQLiteStore) GetAgentByAPIKeyHash(ctx context.Context, hash string) (*m
 	return s.scanAgent(row)
 }
 
+func (s *SQLiteStore) GetAgentByUserID(ctx context.Context, userID string) (*model.Agent, error) {
+	query := `SELECT id, name, user_id, team, api_key_hash, created_at FROM agents WHERE user_id = ?`
+	row := s.db.QueryRowContext(ctx, query, userID)
+	return s.scanAgent(row)
+}
+
 func (s *SQLiteStore) CreateLog(ctx context.Context, log *model.MemoryLog) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO memory_logs (id, memory_id, agent_id, user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		log.ID, log.MemoryID, log.AgentID, log.UserID, log.Action, log.Details, log.CreatedAt.UTC())

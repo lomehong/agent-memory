@@ -75,14 +75,32 @@ func APIKeyOrJWTAuth(dal storage.DAL, authMgr *auth.AuthManager, logger *zerolog
 				return
 			}
 
+			userID := agent.UserID
+			agentID := agent.ID
+			team := agent.Team
+
+			// Allow X-User-Id header to override userId for per-agent isolation
+			if overrideUID := r.Header.Get("X-User-Id"); overrideUID != "" {
+				// Try to find agent by user_id override
+				overrideAgent, err := dal.GetAgentByUserID(r.Context(), overrideUID)
+				if err == nil && overrideAgent != nil {
+					userID = overrideAgent.UserID
+					agentID = overrideAgent.ID
+					team = overrideAgent.Team
+				} else {
+					// Fallback: use the override as-is
+					userID = overrideUID
+				}
+			}
+
 			info := AgentInfo{
-				ID:     agent.ID,
-				Name:   agent.Name,
-				UserID: agent.UserID,
-				Team:   agent.Team,
+				ID:     agentID,
+				Name:   agentID,
+				UserID: userID,
+				Team:   team,
 			}
 			ctx := context.WithValue(r.Context(), agentContextKey, info)
-			ctx = context.WithValue(ctx, userIDContextKey, agent.UserID)
+			ctx = context.WithValue(ctx, userIDContextKey, userID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
