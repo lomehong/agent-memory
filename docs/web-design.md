@@ -3,7 +3,9 @@
 > 项目代号：agent-memory-web  
 > 需求文档：docs/web-requirements.md  
 > 创建日期：2026-04-09  
-> 文档版本：v1.0  
+> 文档版本：v1.1  
+> 更新日期：2026-04-10  
+> 更新内容：前端代码独立为 frontend/ 目录，Go embed 嵌入
 
 ---
 

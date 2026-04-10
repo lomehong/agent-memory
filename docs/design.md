@@ -3,7 +3,9 @@
 > 项目代号：agent-memory  
 > 需求文档：docs/requirements.md  
 > 创建日期：2026-04-09  
-> 文档版本：v1.0  
+> 文档版本：v1.1  
+> 更新日期：2026-04-10  
+> 更新内容：项目结构重组为 frontend/ + backend/、新增 Agent 隔离机制、Web Dashboard、JWT 认证
 
 ---
 
@@ -13,14 +15,15 @@
 ┌─────────────────────────────────────────────────┐
 │                   Agent 调用方                     │
 │     M10S / DevForge / QBot / Sage / Clara          │
-│         (OpenClaw / 未来其他Agent框架)              │
+│         (OpenClaw Plugin, X-User-Id 隔离)           │
 └──────────┬──────────────────────┬────────────────┘
            │                      │
     RESTful API              OpenClaw Plugin
+    (X-API-Key + X-User-Id)  (自动映射 Agent→userId)
            │                      │
 ┌──────────┴──────────────────────┴────────────────┐
 │                  API Gateway                      │
-│        (认证 / Agent身份识别 / 限流 / 路由)         │
+│     (认证 / Agent身份识别(X-User-Id覆盖) / 限流)    │
 │                                                  │
 │  ┌────────────────────────────────────────────┐  │
 │  │         可见性权限控制器                       │  │
