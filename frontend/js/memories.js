@@ -28,7 +28,7 @@ function loadMemories() {
     memState.filter = opts;
 
     api.listMemories(opts).then(function(data) {
-        memState.total = data.count || 0;
+        memState.total = data.total || data.count || 0;
         var tbody = document.getElementById('memTable');
         var list = data.memories || [];
         if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无记忆</td></tr>'; }

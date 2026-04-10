@@ -150,7 +150,8 @@ func (r *Retriever) GetMemory(ctx context.Context, userID, agentID, id string) (
 	if mem == nil {
 		return nil, fmt.Errorf("memory %s not found", id)
 	}
-	if mem.UserID != userID {
+	// Admin (empty userID) can access any memory
+	if userID != "" && mem.UserID != userID {
 		return nil, fmt.Errorf("access denied: memory %s belongs to different user", id)
 	}
 	if !isVisible(mem, agentID, "") {

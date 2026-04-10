@@ -361,12 +361,17 @@ func handleListMemories(retriever *core.Retriever) http.HandlerFunc {
 		if l, _ := strconv.Atoi(r.URL.Query().Get("limit")); l > 0 { filter.Limit = l }
 		if o, _ := strconv.Atoi(r.URL.Query().Get("offset")); o > 0 { filter.Offset = o }
 
+		// Get total count (without limit/offset)
+		countFilter := model.MemoryFilter{Category: filter.Category, Status: filter.Status}
+		allMemories, _ := retriever.ListMemories(r.Context(), info.UserID, info.ID, info.Team, countFilter)
+		total := len(allMemories)
+
 		memories, err := retriever.ListMemories(r.Context(), info.UserID, info.ID, info.Team, filter)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"memories": memories, "count": len(memories)})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"memories": memories, "count": len(memories), "total": total})
 	}
 }
 
