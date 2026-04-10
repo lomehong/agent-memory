@@ -1,0 +1,93 @@
+server:
+  host: "0.0.0.0"
+  port: 8101
+
+web:
+  jwt_secret: "${WEB_JWT_SECRET:-am-dashboard-2026-secret}"
+  token_ttl_hours: 24
+  admins:
+    - username: "admin"
+      password_hash: "admin123"  # 启动时自动bcrypt化
+  login_rate_limit: 5
+
+agents:
+  - id: m10s
+    name: OpenClaw-M10S
+    team: default
+    api_key: ${M10S_API_KEY:-dev-api-key-001}
+  - id: devforge
+    name: OpenClaw-M10S-dev
+    team: default
+    api_key: ${DEVFORGE_API_KEY:-dev-api-key-001}
+  - id: qbot
+    name: OpenClaw-M10S-QA
+    team: default
+    api_key: ${QBOT_API_KEY:-dev-api-key-001}
+  - id: sage
+    name: Sage
+    team: default
+    api_key: ${SAGE_API_KEY:-dev-api-key-001}
+  - id: clara
+    name: Clara
+    team: default
+    api_key: ${CLARA_API_KEY:-dev-api-key-001}
+
+storage:
+  sqlite_path: "./data/memories.db"
+  vector:
+    provider: "memory"  # memory | qdrant
+    host: "localhost"
+    port: 6333
+
+embedding:
+  provider: "mock"  # mock | onnx | openai
+  model: "all-MiniLM-L6-v2"
+  model_path: "./models/all-MiniLM-L6-v2.onnx"
+  dimensions: 384
+  # OpenAI specific config
+  openai_api_key: "${OPENAI_API_KEY:-sk-xxx}"
+  openai_base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"  # 可换成兼容API
+
+dedup:
+  thresholds:
+    identity: 0.95
+    principle: 0.90
+    knowledge: 0.85
+    working: 0.70
+
+search:
+  scoring:
+    similarity_weight: 0.40
+    priority_weight: 0.25
+    access_count_weight: 0.15
+    category_weight: 0.10
+    urgency_weight: 0.10
+  category_weights:
+    identity: 1.0
+    principle: 0.8
+    knowledge: 0.6
+    working: 0.4
+  urgency:
+    threshold_days: 7
+    boost: 0.2
+  default_page_size: 10
+  max_page_size: 50
+
+ttl:
+  scan_interval_hours: 6
+  degrade_multiplier: 2
+  archive_multiplier: 3
+
+governance:
+  compress_threshold: 0.85
+  auto_delete_days: 0
+  max_memories_per_agent: 10000
+  max_tags_per_memory: 20
+  max_content_length: 10000
+
+logging:
+  level: "info"
+
+monitoring:
+  enabled: true
+  metrics_path: "/metrics"

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Memory Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <!-- Chart.js: use npmmirror CDN for China access, with jsDelivr fallback -->
+    <script src="https://registry.npmmirror.com/chart.js/4.4.7/files/dist/chart.umd.min.js"></script>
+    <script>
+        if (typeof Chart === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4"><\/script>');
+        }
+    </script>
+</head>
+<body>
+    <!-- Top Bar -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+            <span class="logo">🧠 Agent Memory</span>
+        </div>
+        <div class="topbar-right">
+            <span id="currentUser" style="margin-right:8px"></span>
+            <button id="logoutBtn" onclick="doLogout()" class="btn btn-sm" style="display:none">登出</button>
+            <span id="connStatus" class="conn-status disconnected">●</span>
+        </div>
+    </header>
+
+    <div class="layout">
+        <!-- Sidebar -->
+        <nav class="sidebar" id="sidebar">
+            <a href="#dashboard" class="nav-item active" data-page="dashboard">📊 概览</a>
+            <a href="#memories" class="nav-item" data-page="memories">📝 记忆</a>
+            <a href="#agents" class="nav-item" data-page="agents">🤖 Agent</a>
+            <a href="#system" class="nav-item" data-page="system">ℹ️ 系统</a>
+        </nav>
+
+        <!-- Content -->
+        <main class="content" id="content"></main>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Modal Overlay -->
+    <div id="modalOverlay" class="modal-overlay" onclick="closeModal()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modalTitle"></h3>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/dashboard.js"></script>
+    <script src="/js/memories.js"></script>
+    <script src="/js/agents.js"></script>
+    <script src="/js/system.js"></script>
+</body>
+</html>

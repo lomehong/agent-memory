@@ -1,0 +1,8 @@
+data/
+qdrant_storage/
+*.db
+*.log
+bin/
+coverage.out
+coverage.html
+models/*.onnx
