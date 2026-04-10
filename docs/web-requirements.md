@@ -4,7 +4,7 @@
 > 需求来源：洪岩  
 > 创建日期：2026-04-09  
 > 文档版本：v1.1  
-> 依赖：agent-memory v1.0 REST API  
+> 依赖：agent-memory v1.1 REST API (含 X-User-Id Agent 隔离)  
 > 变更记录：v1.1 新增 WEB-REQ-013~015 登录认证需求，修订 DESIGN-WEB-003
 
 ---

@@ -1,11 +1,20 @@
-data/
-qdrant_storage/
-*.db
-*.log
-bin/
-coverage.out
-coverage.html
-models/*.onnx
+# Build artifacts
 bin/
 backend/cmd/server/web/
+
+# Runtime data
 data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Vector DB
+qdrant_storage/
+
+# Models
+models/*.onnx
+
+# Coverage
+coverage.out
+coverage.html

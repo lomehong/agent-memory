@@ -1,3 +1,12 @@
+// Package main implements the agent-memory server.
+//
+// agent-memory is a self-hosted AI agent memory management framework supporting
+// multi-agent isolation, semantic search, auto-classification, dedup, and TTL lifecycle.
+//
+// Frontend assets are embedded via Go embed from backend/cmd/server/web/
+// (copied from frontend/ during build by Makefile).
+//
+// GitHub: https://github.com/lomehong/agent-memory
 package main
 
 import (
