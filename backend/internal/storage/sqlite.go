@@ -35,7 +35,7 @@ func Init(dbPath string, logger *zerolog.Logger) (*SQLiteStore, error) {
 	for _, p := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA foreign_keys=ON",
-		"PRAGMA busy_timeout=5000",
+		"PRAGMA busy_timeout=30000",
 	} {
 		if _, err := db.Exec(p); err != nil {
 			db.Close()
