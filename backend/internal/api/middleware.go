@@ -43,10 +43,12 @@ func APIKeyOrJWTAuth(dal storage.DAL, authMgr *auth.AuthManager, logger *zerolog
 					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 					return
 				}
-				info := AgentInfo{
+				// For admin users (JWT login), use empty userID to see all memories.
+// This allows the Web Dashboard to display memories from all agents.
+info := AgentInfo{
 					ID:     claims.Username,
 					Name:   claims.Username,
-					UserID: claims.Username,
+					UserID: "", // empty = see all
 					Team:   "admin",
 				}
 				ctx := context.WithValue(r.Context(), agentContextKey, info)
