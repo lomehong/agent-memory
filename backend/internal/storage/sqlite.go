@@ -196,13 +196,14 @@ func (s *SQLiteStore) ListMemories(ctx context.Context, filter model.MemoryFilte
 //   - user: all agents of the same user
 func (s *SQLiteStore) ListVisibleMemories(ctx context.Context, userID, agentID, team string, extraFilters model.MemoryFilter) ([]*model.Memory, error) {
 	conditions, args := buildFilterConditions(extraFilters)
-	// Override/add user_id filter
-	conditions = append(conditions, "user_id = ?")
-	args = append(args, userID)
-	// Visibility rule: agent sees private(self) + team(same team) + user(all)
-	visCondition := "(agent_id = ? OR (visibility = 'team' AND team = ?) OR visibility = 'user')"
-	conditions = append(conditions, visCondition)
-	args = append(args, agentID, team)
+	// When userID is empty (admin via Web Dashboard), show all memories without user/visibility filtering
+	if userID != "" {
+		conditions = append(conditions, "user_id = ?")
+		args = append(args, userID)
+		visCondition := "(agent_id = ? OR (visibility = 'team' AND team = ?) OR visibility = 'user')"
+		conditions = append(conditions, visCondition)
+		args = append(args, agentID, team)
+	}
 
 	query := fmt.Sprintf(`SELECT id, user_id, agent_id, team, visibility, content, category,
 		priority, source, confidence, ttl, tags, version, status, created_at, updated_at,
@@ -357,32 +358,50 @@ func (s *SQLiteStore) GetMemoriesByStatus(ctx context.Context, status string, li
 func (s *SQLiteStore) GetTopAccessedMemories(ctx context.Context, userID string, limit int) ([]*model.Memory, error) {
 	query := `SELECT id, user_id, agent_id, team, visibility, content, category,
 		priority, source, confidence, ttl, tags, version, status, created_at, updated_at,
-		last_accessed, access_count, merged_from FROM memories WHERE user_id = ? AND status = ?
-		ORDER BY access_count DESC`
+		last_accessed, access_count, merged_from FROM memories WHERE status = ?`
+	var args []interface{}
+	args = append(args, model.StatusActive)
+	if userID != "" {
+		query += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY access_count DESC`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	return s.queryMemories(ctx, query, []interface{}{userID, model.StatusActive})
+	return s.queryMemories(ctx, query, args)
 }
 
 func (s *SQLiteStore) GetZeroAccessMemories(ctx context.Context, userID string, limit int) ([]*model.Memory, error) {
 	query := `SELECT id, user_id, agent_id, team, visibility, content, category,
 		priority, source, confidence, ttl, tags, version, status, created_at, updated_at,
-		last_accessed, access_count, merged_from FROM memories WHERE user_id = ? AND status = ? AND access_count = 0
-		ORDER BY updated_at ASC`
+		last_accessed, access_count, merged_from FROM memories WHERE status = ? AND access_count = 0`
+	var args []interface{}
+	args = append(args, model.StatusActive)
+	if userID != "" {
+		query += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY updated_at ASC`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	return s.queryMemories(ctx, query, []interface{}{userID, model.StatusActive})
+	return s.queryMemories(ctx, query, args)
 }
 
 func (s *SQLiteStore) GetStaleMemories(ctx context.Context, userID string, hoursThreshold int, limit int) ([]*model.Memory, error) {
 	query := `SELECT id, user_id, agent_id, team, visibility, content, category,
 		priority, source, confidence, ttl, tags, version, status, created_at, updated_at,
 		last_accessed, access_count, merged_from FROM memories
-		WHERE user_id = ? AND status = ? AND ttl != 'permanent'
-		AND last_accessed < datetime('now', ? || ' hours')
-		ORDER BY last_accessed ASC`
+		WHERE status = ? AND ttl != 'permanent'
+		AND last_accessed < datetime('now', ? || ' hours')`
+	var args []interface{}
+	args = append(args, model.StatusActive, hoursThreshold)
+	if userID != "" {
+		query += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY last_accessed ASC`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
