@@ -6,3 +6,6 @@ bin/
 coverage.out
 coverage.html
 models/*.onnx
+bin/
+backend/cmd/server/web/
+data/
