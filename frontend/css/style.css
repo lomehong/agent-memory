@@ -71,6 +71,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .tag-private { background: rgba(248,81,73,0.1); color: #f0883e; }
 .tag-team { background: rgba(88,166,255,0.1); color: var(--accent); }
 .tag-user { background: rgba(63,185,80,0.1); color: var(--knowledge); }
+.tag-agent { background: rgba(139,148,158,0.15); color: var(--text-dim); font-family: monospace; font-size: 12px; }
 
 /* ===== Forms ===== */
 .form-group { margin-bottom: 12px; }

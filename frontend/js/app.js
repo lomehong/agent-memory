@@ -164,9 +164,11 @@ function showToast(msg, type) {
     setTimeout(function() { el.remove(); }, 3000);
 }
 
-function openModal(title, bodyHtml) {
+function openModal(title, bodyHtml, width) {
     document.getElementById('modalTitle').textContent = title;
     document.getElementById('modalBody').innerHTML = bodyHtml;
+    var modal = document.querySelector('.modal');
+    modal.style.width = width || '560px';
     document.getElementById('modalOverlay').classList.add('active');
 }
 

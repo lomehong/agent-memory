@@ -10,7 +10,7 @@ function renderMemories() {
         '<button class="btn" onclick="doSearch()">搜索</button></div>' +
         '<select id="filterCat" onchange="applyFilter()"><option value="">全部Category</option><option value="identity">identity</option><option value="principle">principle</option><option value="knowledge">knowledge</option><option value="working">working</option></select>' +
         '<select id="filterStatus" onchange="applyFilter()"><option value="">全部Status</option><option value="active">active</option><option value="degraded">degraded</option><option value="archived">archived</option></select></div>' +
-        '<div class="table-wrap"><table><thead><tr><th><input type="checkbox" onchange="toggleAll(this)"></th><th>内容</th><th>分类</th><th>优先级</th><th>状态</th><th>可见性</th><th>访问</th><th>创建时间</th><th>操作</th></tr></thead>' +
+        '<div class="table-wrap"><table><thead><tr><th><input type="checkbox" onchange="toggleAll(this)"></th><th>内容</th><th>Agent</th><th>分类</th><th>优先级</th><th>状态</th><th>可见性</th><th>访问</th><th>创建时间</th><th>操作</th></tr></thead>' +
         '<tbody id="memTable"></tbody></table></div>' +
         '<div class="pagination"><span id="memInfo"></span><div><button class="btn btn-sm" onclick="memPrev()">« 上一页</button><button class="btn btn-sm" onclick="memNext()">下一页 »</button></div></div>' +
         '<div style="margin-top:8px"><button class="btn btn-danger btn-sm" id="batchDelBtn" style="display:none" onclick="batchDelete()">批量删除 (<span id="batchCount">0</span>)</button></div></div>';
@@ -31,12 +31,13 @@ function loadMemories() {
         memState.total = data.total || data.count || 0;
         var tbody = document.getElementById('memTable');
         var list = data.memories || [];
-        if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无记忆</td></tr>'; }
+        if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="10" class="empty">暂无记忆</td></tr>'; }
         else {
             tbody.innerHTML = list.map(function(m) {
                 var checked = memState.selected.has(m.id) ? 'checked' : '';
                 return '<tr><td><input type="checkbox" data-id="' + m.id + '" ' + checked + ' onchange="toggleSelect(\'' + m.id + '\',this.checked)"></td>' +
                     '<td class="content-cell">' + escHtml(m.content) + '</td>' +
+                    '<td><span class="tag tag-agent" title="user_id: ' + escHtml(m.user_id || '') + '">' + escHtml(m.agent_id || '-') + '</span></td>' +
                     '<td>' + catTag(m.category) + '</td><td>' + m.priority + '</td><td>' + statusTag(m.status) + '</td>' +
                     '<td>' + visTag(m.visibility) + '</td><td>' + m.access_count + '</td>' +
                     '<td>' + formatDate(m.created_at) + '</td>' +
@@ -85,10 +86,12 @@ function doSearch() {
         memState.total = data.count || 0;
         var results = data.results || [];
         var tbody = document.getElementById('memTable');
-        if (results.length === 0) { tbody.innerHTML = '<tr><td colspan="9" class="empty">无匹配结果</td></tr>'; }
+        if (results.length === 0) { tbody.innerHTML = '<tr><td colspan="10" class="empty">无匹配结果</td></tr>'; }
         else {
             tbody.innerHTML = results.map(function(m) {
-                return '<tr><td></td><td class="content-cell">' + escHtml(m.content) + '</td><td>' + catTag(m.category) + '</td>' +
+                return '<tr><td></td><td class="content-cell">' + escHtml(m.content) + '</td>' +
+                    '<td><span class="tag tag-agent" title="user_id: ' + escHtml(m.user_id || '') + '">' + escHtml(m.agent_id || '-') + '</span></td>' +
+                    '<td>' + catTag(m.category) + '</td>' +
                     '<td>' + m.priority + '</td><td>' + statusTag(m.status) + '</td><td>' + visTag(m.visibility) + '</td>' +
                     '<td>' + scoreBar(m.score) + '</td><td>' + formatDate(m.created_at) + '</td>' +
                     '<td><button class="btn btn-sm" onclick="openEditModal(\'' + m.id + '\')">编辑</button></td></tr>';
@@ -144,7 +147,9 @@ function openEditModal(id) {
             ['permanent','year','month','week','session'].map(function(t) { return '<option value="'+t+'"'+(m.ttl===t?' selected':'')+'>'+t+'</option>'; }).join('') +
             '</select></div></div>' +
             '<div class="form-group"><label>标签</label><input type="text" id="eTags" value="' + (m.tags || []).join(', ') + '"></div>' +
-            '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px">ID: ' + m.id + ' | 版本: ' + m.version + ' | 创建: ' + formatDate(m.created_at) + ' | 访问: ' + m.access_count + '次</div>' +
+            '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px;padding:8px;background:var(--bg);border-radius:4px">' +
+            '🤖 Agent: <strong>' + escHtml(m.agent_id || '-') + '</strong> &nbsp;|&nbsp; 👤 User: ' + escHtml(m.user_id || '-') + ' &nbsp;|&nbsp; 👥 Team: ' + escHtml(m.team || '-') +
+            '<br>ID: ' + m.id + ' | 版本: ' + m.version + ' | 创建: ' + formatDate(m.created_at) + ' | 访问: ' + m.access_count + '次</div>' +
             '<div class="modal-footer"><button class="btn btn-primary" onclick="doUpdate(\'' + m.id + '\')">保存</button>' +
             '<button class="btn btn-danger" onclick="doDelete(\'' + m.id + '\')">删除</button><button class="btn" onclick="closeModal()">关闭</button></div>';
         openModal('编辑记忆', html);
