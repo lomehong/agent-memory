@@ -404,6 +404,10 @@ func handleGetMemory(retriever *core.Retriever) http.HandlerFunc {
 	}
 }
 
+func isAdmin(info *api.AgentInfo) bool {
+	return info != nil && info.Team == "admin"
+}
+
 func handleUpdateMemory(db storage.DAL) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info := api.GetAgentInfo(r)
@@ -417,7 +421,7 @@ func handleUpdateMemory(db storage.DAL) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "memory not found")
 			return
 		}
-		if mem.UserID != info.UserID || (mem.Visibility == model.VisibilityPrivate && mem.AgentID != info.ID) {
+		if !isAdmin(info) && (mem.UserID != info.UserID || (mem.Visibility == model.VisibilityPrivate && mem.AgentID != info.ID)) {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
@@ -456,7 +460,7 @@ func handleDeleteMemory(db storage.DAL) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "memory not found")
 			return
 		}
-		if mem.UserID != info.UserID {
+		if !isAdmin(info) && mem.UserID != info.UserID {
 			writeError(w, http.StatusForbidden, "access denied")
 			return
 		}
