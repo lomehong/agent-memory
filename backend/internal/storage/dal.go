@@ -24,6 +24,7 @@ type DAL interface {
 	CreateAgent(ctx context.Context, a *model.Agent) error
 	GetAgent(ctx context.Context, id string) (*model.Agent, error)
 	ListAgents(ctx context.Context, userID string) ([]*model.Agent, error)
+	UpdateAgent(ctx context.Context, a *model.Agent) error
 	DeleteAgent(ctx context.Context, id string) error
 	GetAgentByAPIKeyHash(ctx context.Context, hash string) (*model.Agent, error)
 	GetAgentByUserID(ctx context.Context, userID string) (*model.Agent, error)

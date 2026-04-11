@@ -280,6 +280,20 @@ func (s *SQLiteStore) ListAgents(ctx context.Context, userID string) ([]*model.A
 	return agents, rows.Err()
 }
 
+
+func (s *SQLiteStore) UpdateAgent(ctx context.Context, a *model.Agent) error {
+	query := `UPDATE agents SET name=?, user_id=?, team=? WHERE id=?`
+	result, err := s.db.ExecContext(ctx, query, a.Name, a.UserID, a.Team, a.ID)
+	if err != nil {
+		return fmt.Errorf("update agent %s: %w", a.ID, err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("agent %s not found", a.ID)
+	}
+	return nil
+}
+
 func (s *SQLiteStore) DeleteAgent(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM agents WHERE id = ?`, id)
 	if err != nil {

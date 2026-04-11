@@ -200,6 +200,18 @@ func seedAgents(cfg *config.Config, db storage.DAL, logger *zerolog.Logger) {
 		}
 		existing, _ := db.GetAgent(ctx, entry.ID)
 		if existing != nil {
+			// Update existing agent if config changed
+			updated := existing.UserID != entry.UserID || existing.Team != entry.Team || existing.Name != entry.Name
+			if updated {
+				existing.UserID = entry.UserID
+				existing.Team = entry.Team
+				existing.Name = entry.Name
+				if err := db.UpdateAgent(ctx, existing); err != nil {
+					logger.Error().Err(err).Str("id", entry.ID).Msg("agent update failed")
+				} else {
+					logger.Info().Str("id", entry.ID).Str("name", entry.Name).Msg("agent updated")
+				}
+			}
 			continue
 		}
 		agent := &model.Agent{
