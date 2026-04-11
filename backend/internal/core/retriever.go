@@ -28,6 +28,11 @@ func NewRetriever(dal storage.DAL, embedding embedding.EmbeddingProvider, vector
 	return &Retriever{dal: dal, embedding: embedding, vector: vector, config: cfg, logger: logger}
 }
 
+// DAL exposes the underlying data access layer.
+func (r *Retriever) DAL() storage.DAL {
+	return r.dal
+}
+
 // Search performs semantic search with visibility filtering and multi-dimensional scoring.
 // Corresponds to DESIGN-008, DESIGN-009.
 func (r *Retriever) Search(ctx context.Context, userID, agentID, team, query string, opts model.SearchOpts) ([]model.MemoryWithScore, error) {

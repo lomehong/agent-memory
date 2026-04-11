@@ -395,7 +395,13 @@ func handleGetMemory(retriever *core.Retriever) http.HandlerFunc {
 			return
 		}
 		id := chi.URLParam(r, "id")
-		mem, err := retriever.GetMemory(r.Context(), info.UserID, info.ID, id)
+		var mem *model.Memory
+		var err error
+		if isAdmin(info) {
+			mem, err = retriever.DAL().GetMemory(r.Context(), id)
+		} else {
+			mem, err = retriever.GetMemory(r.Context(), info.UserID, info.ID, id)
+		}
 		if err != nil {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
