@@ -72,9 +72,9 @@ func NewAuthManager(cfg *config.WebConfig, logger *zerolog.Logger) *AuthManager 
 	}
 
 	if len(admins) == 0 {
-		h, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+		h, _ := bcrypt.GenerateFromPassword([]byte("<admin-password>"), bcrypt.DefaultCost)
 		admins["admin"] = &AdminUser{Username: "admin", PasswordHash: string(h)}
-		logger.Warn().Msg("no admins configured, using default admin/admin123")
+		logger.Warn().Msg("no admins configured, using default admin credentials (see docs)")
 	}
 
 	return &AuthManager{

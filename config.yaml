@@ -3,34 +3,34 @@ server:
   port: 8101
 
 web:
-  jwt_secret: "${WEB_JWT_SECRET:-am-dashboard-2026-secret}"
+  jwt_secret: "${WEB_JWT_SECRET:-change-me-in-production}"
   token_ttl_hours: 24
   admins:
     - username: "admin"
-      password_hash: "admin123"  # 启动时自动bcrypt化
+      password_hash: "<admin-password>"  # 启动时自动bcrypt化
   login_rate_limit: 5
 
 agents:
   - id: m10s
     name: OpenClaw-M10S
     team: default
-    api_key: ${M10S_API_KEY:-dev-api-key-001}
+    api_key: ${M10S_API_KEY:-<your-api-key>}
   - id: devforge
     name: OpenClaw-M10S-dev
     team: default
-    api_key: ${DEVFORGE_API_KEY:-dev-api-key-001}
+    api_key: ${DEVFORGE_API_KEY:-<your-api-key>}
   - id: qbot
     name: OpenClaw-M10S-QA
     team: default
-    api_key: ${QBOT_API_KEY:-dev-api-key-001}
+    api_key: ${QBOT_API_KEY:-<your-api-key>}
   - id: sage
     name: Sage
     team: default
-    api_key: ${SAGE_API_KEY:-dev-api-key-001}
+    api_key: ${SAGE_API_KEY:-<your-api-key>}
   - id: clara
     name: Clara
     team: default
-    api_key: ${CLARA_API_KEY:-dev-api-key-001}
+    api_key: ${CLARA_API_KEY:-<your-api-key>}
 
 storage:
   sqlite_path: "./data/memories.db"
@@ -45,7 +45,7 @@ embedding:
   model_path: "./models/all-MiniLM-L6-v2.onnx"
   dimensions: 384
   # OpenAI specific config
-  openai_api_key: "${OPENAI_API_KEY:-sk-xxx}"
+  openai_api_key: "${OPENAI_API_KEY:-<your-openai-key>}"
   openai_base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"  # 可换成兼容API
 
 dedup:

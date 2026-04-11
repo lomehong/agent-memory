@@ -363,7 +363,7 @@ Error:    401 { "error": "token无效或已过期" }
 ```yaml
 # config.yaml 新增配置节
 web:
-  jwt_secret: "${WEB_JWT_SECRET:-am-dashboard-2026-secret-key}"  # 生产环境必须修改
+  jwt_secret: "${WEB_JWT_SECRET:-change-me-in-production}"  # 生产环境必须修改
   token_ttl_hours: 24
   admins:
     - username: "admin"
@@ -375,7 +375,7 @@ web:
 1. 读取 `web.admins` 列表
 2. 对每个管理员，如果 `password_hash` 不以 `$2` 开头（即明文密码），自动用bcrypt哈希后覆盖到配置
 3. 至少需要1个管理员，否则服务启动失败
-4. 首次启动时如果没有配置文件中的web节，使用默认管理员 `admin/admin123` 并在日志中打印警告
+4. 首次启动时如果没有配置文件中的web节，使用默认管理员 `admin/<admin-password>` 并在日志中打印警告
 
 ---
 

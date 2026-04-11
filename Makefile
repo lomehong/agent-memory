@@ -42,8 +42,8 @@ docker-down:
 	docker compose down
 
 # Deploy to remote server
-DEPLOY_HOST ?= openclaw@192.168.2.131
-DEPLOY_DIR ?= /home/openclaw/agent-memory
+DEPLOY_HOST ?= <deploy-host>
+DEPLOY_DIR ?= <deploy-dir>
 
 deploy: build
 	scp $(BIN) $(DEPLOY_HOST):$(DEPLOY_DIR)/agent-memory-new

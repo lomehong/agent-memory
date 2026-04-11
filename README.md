@@ -88,7 +88,7 @@ make docker-logs
 
 ```bash
 # 一键部署到远程服务器
-make deploy DEPLOY_HOST=openclaw@192.168.2.131
+make deploy DEPLOY_HOST=<deploy-host>
 ```
 
 ## API 文档
@@ -156,8 +156,8 @@ make deploy DEPLOY_HOST=openclaw@192.168.2.131
   "agent-memory-plugin": {
     "enabled": true,
     "config": {
-      "host": "http://192.168.2.131:8101",
-      "apiKey": "dev-api-key-001",
+      "host": "http://<deploy-host>:8101",
+      "apiKey": "<your-api-key>",
       "userId": "default",
       "autoRecall": true,
       "autoCapture": true,
