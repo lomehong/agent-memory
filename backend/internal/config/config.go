@@ -39,6 +39,7 @@ func (s ServerConfig) Addr() string {
 type AgentEntry struct {
 	ID     string `yaml:"id"`
 	Name   string `yaml:"name"`
+	UserID string `yaml:"user_id"` // 用于记忆隔离的用户标识
 	Team   string `yaml:"team"`
 	APIKey string `yaml:"api_key"`
 }

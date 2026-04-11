@@ -204,7 +204,7 @@ func seedAgents(cfg *config.Config, db storage.DAL, logger *zerolog.Logger) {
 		}
 		agent := &model.Agent{
 			ID: entry.ID, Name: entry.Name, Team: entry.Team,
-			UserID: "default", APIKeyHash: hashKey(entry.APIKey),
+			UserID: entry.UserID, APIKeyHash: hashKey(entry.APIKey),
 			CreatedAt: time.Now().UTC(),
 		}
 		if err := db.CreateAgent(ctx, agent); err != nil {

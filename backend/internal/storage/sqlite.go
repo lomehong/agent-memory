@@ -396,7 +396,7 @@ func (s *SQLiteStore) GetStaleMemories(ctx context.Context, userID string, hours
 		WHERE status = ? AND ttl != 'permanent'
 		AND last_accessed < datetime('now', ? || ' hours')`
 	var args []interface{}
-	args = append(args, model.StatusActive, hoursThreshold)
+	args = append(args, model.StatusActive, fmt.Sprintf("-%d", hoursThreshold))
 	if userID != "" {
 		query += ` AND user_id = ?`
 		args = append(args, userID)
@@ -405,7 +405,7 @@ func (s *SQLiteStore) GetStaleMemories(ctx context.Context, userID string, hours
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
-	return s.queryMemories(ctx, query, []interface{}{userID, model.StatusActive, fmt.Sprintf("-%d", hoursThreshold)})
+	return s.queryMemories(ctx, query, args)
 }
 
 func (s *SQLiteStore) UpdateMemoryStatus(ctx context.Context, id, status string) error {
