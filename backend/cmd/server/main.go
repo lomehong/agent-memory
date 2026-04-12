@@ -200,10 +200,14 @@ func seedAgents(cfg *config.Config, db storage.DAL, logger *zerolog.Logger) {
 		}
 		existing, _ := db.GetAgent(ctx, entry.ID)
 		if existing != nil {
-			// Update existing agent if config changed
-			updated := existing.UserID != entry.UserID || existing.Team != entry.Team || existing.Name != entry.Name
+			// DESIGN-020: Update existing agent if config changed
+			userID := entry.UserID
+			if userID == "" {
+				userID = entry.ID
+			}
+			updated := existing.UserID != userID || existing.Team != entry.Team || existing.Name != entry.Name
 			if updated {
-				existing.UserID = entry.UserID
+				existing.UserID = userID
 				existing.Team = entry.Team
 				existing.Name = entry.Name
 				if err := db.UpdateAgent(ctx, existing); err != nil {
@@ -214,16 +218,22 @@ func seedAgents(cfg *config.Config, db storage.DAL, logger *zerolog.Logger) {
 			}
 			continue
 		}
+		// DESIGN-021: 从 config 读取 user_id，fallback 为 id
+		userID := entry.UserID
+		if userID == "" {
+			userID = entry.ID
+			logger.Warn().Str("id", entry.ID).Msg("agent config missing user_id, falling back to agent id")
+		}
 		agent := &model.Agent{
 			ID: entry.ID, Name: entry.Name, Team: entry.Team,
-			UserID: entry.UserID, APIKeyHash: hashKey(entry.APIKey),
+			UserID: userID, APIKeyHash: hashKey(entry.APIKey),
 			CreatedAt: time.Now().UTC(),
 		}
 		if err := db.CreateAgent(ctx, agent); err != nil {
 			logger.Error().Err(err).Str("id", entry.ID).Msg("seed agent failed")
 			continue
 		}
-		logger.Info().Str("id", entry.ID).Str("name", entry.Name).Msg("agent seeded")
+		logger.Info().Str("id", entry.ID).Str("name", entry.Name).Str("user_id", userID).Msg("agent seeded")
 	}
 }
 

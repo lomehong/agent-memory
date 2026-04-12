@@ -82,16 +82,20 @@ info := AgentInfo{
 			team := agent.Team
 
 			// Allow X-User-Id header to override userId for per-agent isolation
+			// DESIGN-020: X-User-Id is the sole identity source.
+			// DESIGN-023: When override agent is not found, set both userID and agentID to X-User-Id
 			if overrideUID := r.Header.Get("X-User-Id"); overrideUID != "" {
-				// Try to find agent by user_id override
 				overrideAgent, err := dal.GetAgentByUserID(r.Context(), overrideUID)
 				if err == nil && overrideAgent != nil {
 					userID = overrideAgent.UserID
 					agentID = overrideAgent.ID
 					team = overrideAgent.Team
 				} else {
-					// Fallback: use the override as-is
+					// Agent not registered in DB — use X-User-Id as both userID and agentID
+					// This ensures correct isolation even for unregistered agents
 					userID = overrideUID
+					agentID = overrideUID
+					logger.Debug().Str("override_uid", overrideUID).Msg("X-User-Id agent not found in DB, using as both userID and agentID")
 				}
 			}
 

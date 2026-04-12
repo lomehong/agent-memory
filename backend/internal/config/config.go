@@ -36,10 +36,13 @@ func (s ServerConfig) Addr() string {
 }
 
 // AgentEntry defines a pre-registered agent. Corresponds to REQ-020.
+// DESIGN-021: user_id is the unique identity for memory isolation.
+// api_key is for permission validation only, not identity distinction.
 type AgentEntry struct {
 	ID     string `yaml:"id"`
 	Name   string `yaml:"name"`
-	UserID string `yaml:"user_id"` // 用于记忆隔离的用户标识
+	UserID string `yaml:"user_id"` // 身份隔离标识，每个 Agent 必须独立
+
 	Team   string `yaml:"team"`
 	APIKey string `yaml:"api_key"`
 }

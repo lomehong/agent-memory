@@ -3,9 +3,9 @@
 > 项目代号：agent-memory  
 > 需求文档：docs/requirements.md  
 > 创建日期：2026-04-09  
-> 文档版本：v1.1  
-> 更新日期：2026-04-10  
-> 更新内容：项目结构重组为 frontend/ + backend/、新增 Agent 隔离机制、Web Dashboard、JWT 认证
+> 文档版本：v1.2  
+> 更新日期：2026-04-12  
+> 更新内容：修复 Agent 身份隔离架构缺陷（DESIGN-020~DESIGN-023），消除 API Key 共享导致的多 Agent 注册失败、X-User-Id 覆盖不完整、Plugin 硬编码映射三大 Bug
 
 ---
 
@@ -64,6 +64,50 @@
 
 系统分为四层：调用接口层（API Gateway）、业务逻辑层（写入/检索/治理模块）、数据访问层（DAL）、存储层（SQLite + Qdrant + Embedding服务）。各层通过明确接口解耦。
 
+**DESIGN-020** 身份隔离架构（v1.2 新增）
+
+身份隔离由三层协同保障，职责明确分离：
+
+| 层 | 机制 | 职责 |
+|----|------|------|
+| **Plugin 层** | `config.userId` | 每个部署实例在 openclaw.json 中配置独立的 `userId`，作为 `X-User-Id` Header 发送给后端。**禁止在代码中硬编码 agentId→userId 映射表**，因为 OpenClaw 实例的 agentId 由运行时决定，无法预知。 |
+| **API Gateway 层** | `X-API-Key` + `X-User-Id` | API Key 仅用于**权限验证**（判断调用方是否有资格使用记忆接口），不承担身份区分职责。`X-User-Id` Header 是**唯一的身份标识来源**，用于隔离不同 Agent/用户的记忆数据。 |
+| **数据层** | `user_id` + `agent_id` + `visibility` | 记忆数据通过 `user_id` 做一级隔离，`agent_id` 做二级隔离，`visibility` 做三级访问控制（private/team/user）。 |
+
+```
+身份解析流程（DESIGN-020）：
+
+  请求到达
+     │
+     ▼
+  ┌─────────────────────────────┐
+  │ 1. X-API-Key 验证            │  → 无效则 401（权限拒绝）
+  │    不用于身份区分              │
+  └──────────┬──────────────────┘
+             ▼
+  ┌─────────────────────────────┐
+  │ 2. X-User-Id Header 读取     │  → 这是唯一身份来源
+  │    由 Plugin 从 config 注入    │
+  └──────────┬──────────────────┘
+             ▼
+  ┌─────────────────────────────┐
+  │ 3. agents 表查找              │
+  │    GetAgentByUserID(X-User-Id) │
+  │    ├─ 找到 → 使用其 ID/Team    │
+  │    └─ 未找到 → 以 X-User-Id    │
+  │       作为 userID + agentID   │
+  └──────────┬──────────────────┘
+             ▼
+       后续请求均使用
+       {userID, agentID, team}
+       进行数据隔离
+```
+
+**核心原则：**
+- API Key = 权限验证（能不能用），X-User-Id = 身份标识（你是谁）
+- 多个 Agent 可以共享同一个 API Key（如开发环境），但必须有不同的 userId
+- Plugin 端的身份来源**唯一**是 openclaw.json 中的 `config.userId`，不依赖任何硬编码映射
+
 ---
 
 ## 2. 数据模型设计
@@ -117,12 +161,35 @@ type MemoryVector struct {
 type Agent struct {
     ID        string    `json:"id"`        // Agent唯一标识
     Name      string    `json:"name"`      // 显示名称
-    UserID    string    `json:"user_id"`   // 所属用户
+    UserID    string    `json:"user_id"`   // 所属用户（身份隔离关键字段）
     Team      string    `json:"team"`      // 所属团队
-    APIKey    string    `json:"api_key"`   // 认证密钥（存储哈希）
+    APIKeyHash string   `json:"-"`        // 认证密钥哈希（不暴露）
     CreatedAt time.Time `json:"created_at"`
 }
 ```
+
+**DESIGN-021** Agent 配置结构（v1.2 新增）
+
+config.yaml 中的 agents 配置必须包含 `user_id` 字段，用于身份隔离：
+
+```yaml
+agents:
+  - id: m10s
+    name: OpenClaw-M10S
+    user_id: m10s           # 必填：身份隔离标识
+    team: default
+    api_key: ${M10S_API_KEY}
+  - id: gem12
+    name: OpenClaw-GEM12-MAX-Master
+    user_id: gem12          # 必填：身份隔离标识
+    team: default
+    api_key: ${GEM12_API_KEY}  # 可以与其他 Agent 共享
+```
+
+**设计约束：**
+- `api_key_hash` 不再有 UNIQUE 约束，允许多个 Agent 共享同一个 API Key
+- 每个 Agent 必须有独立的 `user_id`，这是记忆隔离的唯一依据
+- `id` 和 `user_id` 可以相同（推荐），但语义不同：`id` 是 Agent 内部标识，`user_id` 是跨系统身份标识
 
 向量与元数据通过id关联。更新记忆时，同步更新SQLite和Qdrant，保证一致性（NFR-005原子性、NFR-006向量一致性）。
 
@@ -479,6 +546,37 @@ tools:
     parameters: {}
 ```
 
+**DESIGN-022** Plugin 身份注入机制（v1.2 新增）
+
+Plugin 的身份来源**唯一**是 openclaw.json 中的 `config.userId`，通过 `X-User-Id` Header 发送给后端。
+
+```jsonc
+// openclaw.json 中每个 OpenClaw 实例的配置
+"plugins": {
+  "entries": {
+    "agent-memory-plugin": {
+      "enabled": true,
+      "config": {
+        "host": "http://192.168.2.131:8101",
+        "apiKey": "dev-api-key-001",     // 权限验证
+        "userId": "gem12",                // 身份标识（每个实例必须不同！）
+        "autoRecall": true,
+        "autoCapture": true,
+        "topK": 5
+      }
+    }
+  }
+}
+```
+
+**禁止项：**
+- ❌ 禁止在 Plugin 代码中硬编码 `agentId → userId` 映射表（如 `{main: "m10s", dev: "devforge"}`），因为 OpenClaw 实例的 agentId 由运行时决定，无法预知，硬编码会导致跨实例身份混淆
+- ❌ 禁止依赖 agentId 推断 userId，因为不同机器上的 agentId 可能相同（如都是 "main"）
+
+**正确做法：**
+- ✅ Plugin 每次请求都使用 `config.userId` 作为 `X-User-Id` Header
+- ✅ 每个 OpenClaw 实例在部署时配置唯一的 `userId`
+
 ---
 
 ### 3.5 数据迁移
@@ -612,27 +710,39 @@ server:
   port: 8100
 
 # Agent注册表（也可通过API动态管理）
+# api_key 仅用于权限验证，不用于身份区分
+# user_id 是身份隔离的唯一标识，每个 Agent 必须有独立值
 agents:
   - id: m10s
     name: OpenClaw-M10S
+    user_id: m10s              # 身份隔离标识（DESIGN-021）
     team: default
     api_key: ${M10S_API_KEY}
   - id: devforge
     name: OpenClaw-M10S-dev
+    user_id: devforge
     team: default
     api_key: ${DEVFORGE_API_KEY}
   - id: qbot
     name: OpenClaw-M10S-QA
+    user_id: qbot
     team: default
     api_key: ${QBOT_API_KEY}
   - id: sage
     name: Sage
+    user_id: sage
     team: default
     api_key: ${SAGE_API_KEY}
   - id: clara
     name: Clara
+    user_id: clara
     team: default
     api_key: ${CLARA_API_KEY}
+  - id: gem12
+    name: OpenClaw-GEM12-MAX-Master
+    user_id: gem12
+    team: default
+    api_key: ${GEM12_API_KEY}    # 可以与其他 Agent 共享
 
 storage:
   sqlite_path: ./data/memories.db
@@ -767,6 +877,10 @@ agent-memory/
 | DESIGN-017 | NFR-015, NFR-016 |
 | DESIGN-018 | NFR-009 |
 | DESIGN-019 | NFR-007, NFR-017 |
+| DESIGN-020 | REQ-020, REQ-025（身份隔离架构） |
+| DESIGN-021 | REQ-020（Agent 配置结构） |
+| DESIGN-022 | REQ-024（Plugin 身份注入） |
+| DESIGN-023 | REQ-020（X-User-Id 覆盖修复） |
 
 ---
 
@@ -780,3 +894,22 @@ agent-memory/
 | Phase 4 | TTL过期 + 批量压缩 + 健康报告 | 1天 |
 | Phase 5 | Mem0迁移工具 + OpenClaw插件 | 0.5天 |
 | Phase 6 | Docker化 + 测试 + 文档完善 | 0.5天 |
+| **Phase 7** | **身份隔离修复（DESIGN-020~023）** | **0.5天** |
+
+## 9. 变更历史
+
+### v1.2 (2026-04-12) — 身份隔离架构修复
+
+**修复的 Bug：**
+
+| # | 位置 | 问题 | 修复 | 设计编号 |
+|---|------|------|------|----------|
+| 1 | Plugin `index.ts` | 硬编码 `AGENT_USER_MAP`（`{main:"m10s", dev:"devforge", ...}`）覆盖 config 中的 `userId`，导致不同机器上 agentId 相同的实例（如都是 "main"）共享同一个身份 | 删除 `AGENT_USER_MAP`，`resolveUserId()` 直接返回 `config.userId` | DESIGN-022 |
+| 2 | Server `config.go` + `main.go` | `AgentEntry` 没有 `user_id` 字段，`seedAgents()` 硬编码 `UserID: "default"`，导致 agents 表中所有 agent 的 user_id 相同 | `AgentEntry` 增加 `user_id` 字段，`seedAgents()` 读取使用 | DESIGN-021 |
+| 3 | Server `middleware.go` | X-User-Id 覆盖时，若 `GetAgentByUserID` 返回 nil，只更新了 `userID`，`agentID` 和 `team` 仍为 API Key 对应 agent 的值 | fallback 时以 X-User-Id 同时设置 userID 和 agentID | DESIGN-023 |
+| 4 | Server `sqlite.go` | `api_key_hash` 有 UNIQUE 约束，导致共享 API Key 的多个 Agent 只能注册第一个（`INSERT OR IGNORE` 静默跳过） | 去掉 UNIQUE 约束，改为普通索引 | DESIGN-020 |
+
+**架构原则变更：**
+- API Key 职责明确为**权限验证**，不再承担身份区分
+- X-User-Id Header 是**唯一的身份标识来源**
+- Plugin 身份来源**唯一**是 openclaw.json 中的 `config.userId`，禁止硬编码映射

@@ -13,24 +13,34 @@ web:
 agents:
   - id: m10s
     name: OpenClaw-M10S
+    user_id: m10s
     team: default
     api_key: ${M10S_API_KEY:-<your-api-key>}
   - id: devforge
     name: OpenClaw-M10S-dev
+    user_id: devforge
     team: default
     api_key: ${DEVFORGE_API_KEY:-<your-api-key>}
   - id: qbot
     name: OpenClaw-M10S-QA
+    user_id: qbot
     team: default
     api_key: ${QBOT_API_KEY:-<your-api-key>}
   - id: sage
     name: Sage
+    user_id: sage
     team: default
     api_key: ${SAGE_API_KEY:-<your-api-key>}
   - id: clara
     name: Clara
+    user_id: clara
     team: default
-    api_key: ${CLARA_API_KEY:-<your-api-key>}
+    api_key: ${CLARA_API_KEY:-dev-api-key-001}
+  - id: gem12
+    name: OpenClaw-GEM12-MAX-Master
+    user_id: gem12
+    team: default
+    api_key: ${GEM12_API_KEY:-dev-api-key-001}
 
 storage:
   sqlite_path: "./data/memories.db"
