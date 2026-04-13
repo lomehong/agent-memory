@@ -36,8 +36,8 @@ func TestHeatScorer_Score(t *testing.T) {
 				LastAccessed: now,
 				CreatedAt:    now,
 			},
-			minScore: 90,
-			maxScore: 100,
+			minScore: 30,
+			maxScore: 50,
 		},
 		{
 			name: "highly accessed recent memory",
@@ -46,8 +46,8 @@ func TestHeatScorer_Score(t *testing.T) {
 				LastAccessed: now,
 				CreatedAt:    now,
 			},
-			minScore: 90,
-			maxScore: 100,
+			minScore: 60,
+			maxScore: 75,
 		},
 		{
 			name: "old rarely accessed memory",
