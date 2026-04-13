@@ -72,7 +72,9 @@ func (s *SQLiteStore) createTables() error {
 			updated_at DATETIME NOT NULL,
 			last_accessed DATETIME NOT NULL,
 			access_count INTEGER NOT NULL DEFAULT 0,
-			merged_from TEXT NOT NULL DEFAULT '[]'
+			merged_from TEXT NOT NULL DEFAULT '[]',
+			heat_score REAL NOT NULL DEFAULT 0,
+			heat_updated_at DATETIME
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_memories_agent_id ON memories(agent_id)`,

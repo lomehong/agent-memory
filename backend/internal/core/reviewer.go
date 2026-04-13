@@ -34,6 +34,8 @@ func NewReviewer(dal storage.DAL, embedding embedding.EmbeddingProvider, vector 
 			cfg.Evolution.LLM.APIKey,
 			cfg.Evolution.LLM.BaseURL,
 			cfg.Evolution.LLM.Model,
+			cfg.Evolution.LLM.TimeoutSeconds,
+			cfg.Evolution.LLM.MaxTokens,
 			logger,
 		)
 	}

@@ -167,5 +167,6 @@ type HealthReport struct {
 	TopAccessed             []Memory          `json:"top_accessed"`
 	ZeroAccess              []Memory          `json:"zero_access"`
 	StaleMemories           []Memory          `json:"stale_memories"`
+	Heat                    *HeatSection      `json:"heat,omitempty"`
 	ChangesSinceLastReport  map[string]int    `json:"changes_since_last_report,omitempty"`
 }

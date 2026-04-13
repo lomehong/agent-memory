@@ -7,34 +7,46 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
 // GLMClient provides a client for Zhipu GLM API (OpenAI-compatible).
+// Per design §5: shared by Dream and Review modules.
 type GLMClient struct {
 	apiKey     string
 	baseURL    string
 	model      string
+	timeout    time.Duration
+	maxTokens  int
 	httpClient *http.Client
 	logger     *zerolog.Logger
 }
 
 // NewGLMClient creates a new GLM client.
-func NewGLMClient(apiKey, baseURL, model string, logger *zerolog.Logger) *GLMClient {
+func NewGLMClient(apiKey, baseURL, model string, timeoutSeconds, maxTokens int, logger *zerolog.Logger) *GLMClient {
 	if baseURL == "" {
-		baseURL = "https://open.bigmodel.cn/api/paas/v4"
+		baseURL = "https://open.bigmodel.cn/api/coding/paas/v4"
 	}
 	if model == "" {
 		model = "glm-4-flash"
 	}
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 10
+	}
+	if maxTokens <= 0 {
+		maxTokens = 2000
+	}
 	return &GLMClient{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:   model,
+		apiKey:    apiKey,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		model:     model,
+		timeout:   time.Duration(timeoutSeconds) * time.Second,
+		maxTokens: maxTokens,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: time.Duration(timeoutSeconds+5) * time.Second, // extra buffer for network
 		},
 		logger: logger,
 	}
@@ -83,6 +95,9 @@ func (c *GLMClient) ChatCompletion(ctx context.Context, messages []ChatMessage, 
 	if c.apiKey == "" {
 		return "", fmt.Errorf("GLM API key not configured")
 	}
+	if maxTokens <= 0 {
+		maxTokens = c.maxTokens
+	}
 
 	req := ChatRequest{
 		Model:       c.model,
@@ -129,31 +144,39 @@ func (c *GLMClient) ChatCompletion(ctx context.Context, messages []ChatMessage, 
 }
 
 // SummarizeDreamPatterns uses GLM to summarize dream patterns.
-func (c *GLMClient) SummarizeDreamPatterns(ctx context.Context, patterns []string) (string, error) {
+// Per design §2.4: sends candidate patterns + memory summaries, returns analysis.
+func (c *GLMClient) SummarizeDreamPatterns(ctx context.Context, patterns []string, memSummaries []string) (string, error) {
 	if c.apiKey == "" {
 		return "", fmt.Errorf("GLM API key not configured")
 	}
 
-	systemPrompt := `你是一个记忆分析专家。请分析以下记忆模式，并提供简洁的总结。
-重点关注：
-1. 重复出现的主题
-2. 趋势变化
-3. 异常或孤立点
-4. 潜在冲突
+	systemPrompt := `你是 AI Agent 记忆系统的分析模块。以下是从 Agent 记忆中识别到的候选模式，
+请判断每个模式是否为真实有价值的模式，并生成简洁描述和行动建议。
+
+## 输出格式（JSON）
+[
+  {
+    "valid": true/false,
+    "pattern_type": "repetition|trend|orphan|conflict",
+    "description": "简洁描述",
+    "action_suggestion": "可操作建议（可选）"
+  }
+]
 
 请用中文回答，保持简洁实用。`
 
-	userContent := "发现的模式：\n" + joinStrings(patterns, "\n- ")
+	userContent := "## 候选模式\n" + joinStrings(patterns, "\n- ") + "\n\n## 原始记忆摘要\n" + joinStrings(memSummaries, "\n- ")
 
 	messages := []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userContent},
 	}
 
-	return c.ChatCompletion(ctx, messages, 0.3, 500)
+	return c.ChatCompletion(ctx, messages, 0.3, c.maxTokens)
 }
 
 // EnhanceReviewActionItems uses GLM to enhance review action items.
+// Per design §3.2 step 3: optimizes action items expression.
 func (c *GLMClient) EnhanceReviewActionItems(ctx context.Context, findings string) (string, error) {
 	if c.apiKey == "" {
 		return "", fmt.Errorf("GLM API key not configured")
@@ -175,13 +198,7 @@ func (c *GLMClient) EnhanceReviewActionItems(ctx context.Context, findings strin
 	return c.ChatCompletion(ctx, messages, 0.4, 300)
 }
 
+// joinStrings joins a slice of strings with a separator.
 func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
+	return strings.Join(strs, sep)
 }

@@ -17,6 +17,7 @@ import (
 )
 
 // Dreamer performs dream evolution: pattern detection and insight synthesis.
+// Corresponds to evolution-design.md §2.
 type Dreamer struct {
 	dal       storage.DAL
 	embedding embedding.EmbeddingProvider
@@ -29,8 +30,15 @@ type Dreamer struct {
 // NewDreamer creates a new dreamer instance.
 func NewDreamer(dal storage.DAL, embedding embedding.EmbeddingProvider, vector storage.VectorStore, cfg *config.Config, logger *zerolog.Logger) *Dreamer {
 	var glmClient *llm.GLMClient
-	if cfg.Evolution.LLM.APIKey != "" {
-		glmClient = llm.NewGLMClient(cfg.Evolution.LLM.APIKey, cfg.Evolution.LLM.BaseURL, cfg.Evolution.LLM.Model, logger)
+	if cfg.Evolution.LLM.Enabled && cfg.Evolution.LLM.APIKey != "" {
+		glmClient = llm.NewGLMClient(
+			cfg.Evolution.LLM.APIKey,
+			cfg.Evolution.LLM.BaseURL,
+			cfg.Evolution.LLM.Model,
+			cfg.Evolution.LLM.TimeoutSeconds,
+			cfg.Evolution.LLM.MaxTokens,
+			logger,
+		)
 	}
 
 	return &Dreamer{
@@ -44,17 +52,82 @@ func NewDreamer(dal storage.DAL, embedding embedding.EmbeddingProvider, vector s
 }
 
 // Run executes a dream cycle for the given agent.
-func (d *Dreamer) Run(ctx context.Context, userID, agentID string) (*model.DreamReport, error) {
+// agentID="all" scans all registered agents.
+// lookbackDays controls the time window (default from config, typically 7).
+// dryRun=true skips writing insights to the database.
+func (d *Dreamer) Run(ctx context.Context, userID, agentID string, lookbackDays int, dryRun bool) (*model.DreamReport, error) {
 	startedAt := time.Now().UTC()
-	report := &model.DreamReport{
-		RunID:       uuid.New().String(),
-		UserID:      userID,
-		AgentID:     agentID,
-		StartedAt:   startedAt,
-		CompletedAt: time.Now().UTC(),
+
+	// Apply defaults
+	if lookbackDays <= 0 {
+		lookbackDays = d.config.Evolution.Dream.GetDefaultLookbackDays()
 	}
 
-	// Load all active memories for the agent
+	report := &model.DreamReport{
+		RunID:      uuid.New().String(),
+		UserID:     userID,
+		AgentID:    agentID,
+		StartedAt:  startedAt,
+		DryRun:     dryRun,
+	}
+
+	// Resolve agent list
+	agentIDs, err := d.resolveAgentIDs(ctx, userID, agentID)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("resolve agents: %v", err))
+		report.CompletedAt = time.Now().UTC()
+		return report, err
+	}
+	report.AgentsScanned = len(agentIDs)
+
+	// Time window
+	since := time.Now().AddDate(0, 0, -lookbackDays)
+
+	// Process each agent
+	for _, aid := range agentIDs {
+		agentReport := d.runForAgent(ctx, userID, aid, since, dryRun)
+		mergeAgentReport(report, agentReport)
+	}
+
+	durationMs := time.Since(startedAt).Milliseconds()
+	report.DurationMs = durationMs
+	report.CompletedAt = time.Now().UTC()
+
+	// Persist dream run log
+	d.logDreamRun(ctx, report)
+
+	return report, nil
+}
+
+// resolveAgentIDs returns the list of agent IDs to scan.
+// agentID="all" returns all registered agents; otherwise returns [agentID].
+func (d *Dreamer) resolveAgentIDs(ctx context.Context, userID, agentID string) ([]string, error) {
+	if strings.ToLower(agentID) == "all" {
+		agents, err := d.dal.ListAgents(ctx, "")
+		if err != nil {
+			return nil, fmt.Errorf("list agents: %w", err)
+		}
+		var ids []string
+		for _, a := range agents {
+			ids = append(ids, a.ID)
+		}
+		if len(ids) == 0 {
+			return nil, fmt.Errorf("no registered agents")
+		}
+		return ids, nil
+	}
+	return []string{agentID}, nil
+}
+
+// runForAgent executes dream analysis for a single agent.
+func (d *Dreamer) runForAgent(ctx context.Context, userID, agentID string, since time.Time, dryRun bool) *model.DreamReport {
+	report := &model.DreamReport{
+		RunID:   uuid.New().String(),
+		UserID:  userID,
+		AgentID: agentID,
+	}
+
+	// Load memories within time window
 	filter := model.MemoryFilter{
 		UserID:  userID,
 		AgentID: agentID,
@@ -64,62 +137,80 @@ func (d *Dreamer) Run(ctx context.Context, userID, agentID string) (*model.Dream
 	memories, err := d.dal.ListMemories(ctx, filter)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("load memories: %v", err))
-		return report, fmt.Errorf("load memories: %w", err)
+		return report
 	}
 
-	report.TotalMemories = len(memories)
-	if len(memories) < 3 {
-		report.Errors = append(report.Errors, "insufficient memories for analysis")
-		return report, nil
+	// Filter by time window
+	var windowed []*model.Memory
+	for _, m := range memories {
+		if m.CreatedAt.After(since) {
+			windowed = append(windowed, m)
+		}
+	}
+	report.TotalMemories = len(windowed)
+
+	minMemories := d.config.Evolution.Dream.MinMemories
+	if minMemories == 0 {
+		minMemories = 3
+	}
+	if len(windowed) < minMemories {
+		report.Errors = append(report.Errors, fmt.Sprintf("insufficient memories (%d < %d)", len(windowed), minMemories))
+		return report
 	}
 
-	// Detect patterns
-	patterns := d.detectPatterns(memories)
+	// Step 1: Detect patterns
+	patterns := d.detectPatterns(windowed)
 	report.PatternsFound = len(patterns)
 
-	// Synthesize insights using LLM or fallback
-	insights, fallbackUsed := d.synthesizeInsights(ctx, patterns, memories)
+	// Step 2: Synthesize insights using LLM or fallback
+	insights, fallbackUsed := d.synthesizeInsights(ctx, patterns, windowed)
 	report.FallbackUsed = fallbackUsed
-	report.Insights = insights
 
-	// Write insights as new memories
-	if err := d.persistInsights(ctx, userID, agentID, insights); err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("persist insights: %v", err))
+	// Step 3: Deduplicate against existing dream insights
+	dedupedInsights, created, updated := d.deduplicateInsights(ctx, insights, userID, agentID)
+	report.InsightsCreated = created
+	report.InsightsUpdated = updated
+	report.Insights = dedupedInsights
+
+	// Step 4: Persist insights (skip if dry_run)
+	if !dryRun {
+		if err := d.persistInsights(ctx, userID, agentID, dedupedInsights); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("persist insights: %v", err))
+		}
 	}
 
-	// Log the dream run
-	d.logDreamRun(ctx, report)
+	report.LLMUsed = !fallbackUsed
+	if d.llm != nil {
+		report.LLMModel = d.config.Evolution.LLM.Model
+	}
 
-	return report, nil
+	return report
 }
 
 // detectPatterns analyzes memories for patterns: duplicates, trends, isolated, conflicts.
 func (d *Dreamer) detectPatterns(memories []*model.Memory) []model.CandidatePattern {
 	var patterns []model.CandidatePattern
 
-	// 1. Check for duplicates using vector similarity
-	duplicates := d.findDuplicatePatterns(memories)
-	patterns = append(patterns, duplicates...)
+	// 3a. Duplicate pattern detection (vector similarity clustering)
+	patterns = append(patterns, d.findDuplicatePatterns(memories)...)
 
-	// 2. Check for trends (memories with similar content over time)
-	trends := d.findTrendPatterns(memories)
-	patterns = append(patterns, trends...)
+	// 3b. Trend pattern detection (category growth)
+	patterns = append(patterns, d.findTrendPatterns(memories)...)
 
-	// 3. Check for isolated memories (low access, old)
-	isolated := d.findIsolatedPatterns(memories)
-	patterns = append(patterns, isolated...)
+	// 3c. Isolated memory detection (low access, old)
+	patterns = append(patterns, d.findIsolatedPatterns(memories)...)
 
-	// 4. Check for conflicts (contradictory information)
-	conflicts := d.findConflictPatterns(memories)
-	patterns = append(patterns, conflicts...)
+	// 3d. Conflict pattern detection (contradictory information)
+	patterns = append(patterns, d.findConflictPatterns(memories)...)
 
 	return patterns
 }
 
-// findDuplicatePatterns finds semantically similar memories.
+// findDuplicatePatterns finds semantically similar memories via vector clustering.
+// Cluster size >= 3 → candidate duplicate pattern (per design §2.2).
 func (d *Dreamer) findDuplicatePatterns(memories []*model.Memory) []model.CandidatePattern {
 	var patterns []model.CandidatePattern
-	threshold := 0.85 // High threshold for potential duplicates
+	threshold := d.config.Evolution.Dream.GetPatternThreshold()
 
 	for i, mem1 := range memories {
 		if mem1.Category != model.CategoryWorking {
@@ -132,8 +223,10 @@ func (d *Dreamer) findDuplicatePatterns(memories []*model.Memory) []model.Candid
 		}
 
 		var similarIDs []string
+		similarIDs = append(similarIDs, mem1.ID)
+
 		for j, mem2 := range memories {
-			if i >= j || mem2.Category != mem1.Category {
+			if j == i || mem2.Category != mem1.Category {
 				continue
 			}
 
@@ -142,18 +235,18 @@ func (d *Dreamer) findDuplicatePatterns(memories []*model.Memory) []model.Candid
 				continue
 			}
 
-			sim := cosineSimilarity(vec1, vec2)
-			if sim >= threshold {
+			if cosineSimilarity(vec1, vec2) >= threshold {
 				similarIDs = append(similarIDs, mem2.ID)
 			}
 		}
 
-		if len(similarIDs) > 0 {
+		// Only report clusters with >= 3 similar memories (per design)
+		if len(similarIDs) >= 3 {
 			patterns = append(patterns, model.CandidatePattern{
 				Type:        "duplicate",
-				MemoryIDs:   append([]string{mem1.ID}, similarIDs...),
+				MemoryIDs:   similarIDs,
 				Score:       threshold,
-				Description: fmt.Sprintf("Found %d similar working memories", len(similarIDs)+1),
+				Description: fmt.Sprintf("Found %d similar working memories (potential duplicate pattern)", len(similarIDs)),
 			})
 		}
 	}
@@ -161,11 +254,11 @@ func (d *Dreamer) findDuplicatePatterns(memories []*model.Memory) []model.Candid
 	return patterns
 }
 
-// findTrendPatterns finds temporal trends in memories.
+// findTrendPatterns finds temporal trends by category growth.
+// A category with >= 5 memories in the window suggests a trend.
 func (d *Dreamer) findTrendPatterns(memories []*model.Memory) []model.CandidatePattern {
 	var patterns []model.CandidatePattern
 
-	// Group by category and look for increasing counts over time
 	categoryCounts := make(map[string]int)
 	for _, mem := range memories {
 		categoryCounts[mem.Category]++
@@ -173,7 +266,6 @@ func (d *Dreamer) findTrendPatterns(memories []*model.Memory) []model.CandidateP
 
 	for cat, count := range categoryCounts {
 		if count >= 5 {
-			// Find sample memories
 			var sampleIDs []string
 			for _, mem := range memories {
 				if mem.Category == cat && len(sampleIDs) < 3 {
@@ -185,7 +277,7 @@ func (d *Dreamer) findTrendPatterns(memories []*model.Memory) []model.CandidateP
 					Type:        "trend",
 					MemoryIDs:   sampleIDs,
 					Score:       float64(count) / 10.0,
-					Description: fmt.Sprintf("Growing trend in %s category (%d memories)", cat, count),
+					Description: fmt.Sprintf("Growing trend in %s category (%d memories in window)", cat, count),
 				})
 			}
 		}
@@ -194,19 +286,20 @@ func (d *Dreamer) findTrendPatterns(memories []*model.Memory) []model.CandidateP
 	return patterns
 }
 
-// findIsolatedPatterns finds rarely accessed memories.
+// findIsolatedPatterns finds rarely accessed old memories.
+// Priority <= 2, access_count == 0, older than 30 days.
 func (d *Dreamer) findIsolatedPatterns(memories []*model.Memory) []model.CandidatePattern {
 	var patterns []model.CandidatePattern
-	const isolationThreshold = 30 // days
+	const isolationThresholdDays = 30
 
 	for _, mem := range memories {
 		daysSinceAccess := time.Since(mem.LastAccessed).Hours() / 24
-		if mem.AccessCount == 0 && daysSinceAccess > isolationThreshold {
+		if mem.AccessCount == 0 && daysSinceAccess > isolationThresholdDays {
 			patterns = append(patterns, model.CandidatePattern{
 				Type:        "isolated",
 				MemoryIDs:   []string{mem.ID},
 				Score:       daysSinceAccess,
-				Description: fmt.Sprintf("Never accessed in %.0f days", daysSinceAccess),
+				Description: fmt.Sprintf("Never accessed in %.0f days, priority=%d", daysSinceAccess, mem.Priority),
 			})
 		}
 	}
@@ -214,11 +307,11 @@ func (d *Dreamer) findIsolatedPatterns(memories []*model.Memory) []model.Candida
 	return patterns
 }
 
-// findConflictPatterns finds potentially conflicting information.
+// findConflictPatterns finds potentially conflicting information in identity memories.
+// Memories with contradiction keywords and high Jaccard similarity.
 func (d *Dreamer) findConflictPatterns(memories []*model.Memory) []model.CandidatePattern {
 	var patterns []model.CandidatePattern
 
-	// Look for memories in identity category with similar but contradictory content
 	identityMemories := filterByCategory(memories, model.CategoryIdentity)
 	for i, mem1 := range identityMemories {
 		for _, mem2 := range identityMemories[i+1:] {
@@ -238,36 +331,48 @@ func (d *Dreamer) findConflictPatterns(memories []*model.Memory) []model.Candida
 
 // synthesizeInsights creates insights from patterns using LLM or rule-based fallback.
 func (d *Dreamer) synthesizeInsights(ctx context.Context, patterns []model.CandidatePattern, memories []*model.Memory) ([]model.Insight, bool) {
+	if len(patterns) == 0 {
+		return []model.Insight{}, false
+	}
+
 	if d.llm != nil {
-		// Try LLM-based synthesis
-		insights, err := d.synthesizeWithLLM(ctx, patterns)
+		insights, err := d.synthesizeWithLLM(ctx, patterns, memories)
 		if err == nil && len(insights) > 0 {
 			return insights, false
 		}
 		d.logger.Warn().Err(err).Msg("LLM synthesis failed, using rule-based fallback")
 	}
 
-	// Fallback to rule-based synthesis
 	return d.synthesizeWithRules(patterns), true
 }
 
-// synthesizeWithLLM uses GLM to synthesize insights.
-func (d *Dreamer) synthesizeWithLLM(ctx context.Context, patterns []model.CandidatePattern) ([]model.Insight, error) {
-	if len(patterns) == 0 {
-		return []model.Insight{}, nil
-	}
-
+// synthesizeWithLLM uses GLM to analyze candidate patterns and generate insights.
+// Per design §2.4: sends patterns + memory summaries, asks GLM to validate and describe.
+func (d *Dreamer) synthesizeWithLLM(ctx context.Context, patterns []model.CandidatePattern, memories []*model.Memory) ([]model.Insight, error) {
 	var patternDescs []string
 	for _, p := range patterns {
-		patternDescs = append(patternDescs, fmt.Sprintf("%s: %s", p.Type, p.Description))
+		patternDescs = append(patternDescs, fmt.Sprintf("[%s] score=%.2f: %s (memories: %v)", p.Type, p.Score, p.Description, p.MemoryIDs))
 	}
 
-	summary, err := d.llm.SummarizeDreamPatterns(ctx, patternDescs)
+	// Build memory summaries for context
+	var memSummaries []string
+	maxSource := d.config.Evolution.Dream.GetMaxSourceMemories()
+	for i, m := range memories {
+		if i >= maxSource {
+			break
+		}
+		preview := m.Content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		memSummaries = append(memSummaries, fmt.Sprintf("[%s/%s] %s", m.Category, m.ID[:8], preview))
+	}
+
+	summary, err := d.llm.SummarizeDreamPatterns(ctx, patternDescs, memSummaries)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create a single insight from the summary
 	var allSourceIDs []string
 	for _, p := range patterns {
 		allSourceIDs = append(allSourceIDs, p.MemoryIDs...)
@@ -285,7 +390,8 @@ func (d *Dreamer) synthesizeWithLLM(ctx context.Context, patterns []model.Candid
 	return []model.Insight{insight}, nil
 }
 
-// synthesizeWithRules creates insights using simple rules.
+// synthesizeWithRules creates insights using simple rules (fallback).
+// Per design §2.4: format "[规则生成] <pattern_type>: 发现 <N> 条相似记忆"
 func (d *Dreamer) synthesizeWithRules(patterns []model.CandidatePattern) []model.Insight {
 	var insights []model.Insight
 
@@ -293,7 +399,7 @@ func (d *Dreamer) synthesizeWithRules(patterns []model.CandidatePattern) []model
 		insight := model.Insight{
 			ID:         uuid.New().String(),
 			Type:       pattern.Type,
-			Content:    pattern.Description,
+			Content:    fmt.Sprintf("[规则生成] %s: %s", pattern.Type, pattern.Description),
 			SourceIDs:  pattern.MemoryIDs,
 			Confidence: 0.7,
 			CreatedAt:  time.Now().UTC(),
@@ -304,31 +410,106 @@ func (d *Dreamer) synthesizeWithRules(patterns []model.CandidatePattern) []model
 	return insights
 }
 
+// deduplicateInsights checks new insights against existing dream insights.
+// Per design §2.2 step 5: similarity > threshold → update existing, append source_memories.
+func (d *Dreamer) deduplicateInsights(ctx context.Context, newInsights []model.Insight, userID, agentID string) ([]model.Insight, int, int) {
+	threshold := d.config.Evolution.Dream.GetInsightDedupThreshold()
+
+	// Load existing memories and filter by source="dream" in code
+	filter := model.MemoryFilter{
+		UserID:  userID,
+		AgentID: agentID,
+		Status:  model.StatusActive,
+		Limit:   1000,
+	}
+	allExisting, err := d.dal.ListMemories(ctx, filter)
+	if err != nil {
+		d.logger.Warn().Err(err).Msg("load existing memories for dedup, skipping")
+		return newInsights, len(newInsights), 0
+	}
+
+	// Filter to dream-sourced memories
+	var existing []*model.Memory
+	for _, m := range allExisting {
+		if m.Source == "dream" {
+			existing = append(existing, m)
+		}
+	}
+
+	var deduped []model.Insight
+	created := 0
+	updated := 0
+
+	for _, insight := range newInsights {
+		duplicated := false
+		for _, ex := range existing {
+			sim := jaccardSimilarity(strings.ToLower(insight.Content), strings.ToLower(ex.Content))
+			if sim >= threshold {
+				// Merge source IDs
+				merged := make(map[string]bool)
+				for _, id := range insight.SourceIDs {
+					merged[id] = true
+				}
+				if ex.MergedFrom != nil {
+					for _, id := range ex.MergedFrom {
+						merged[id] = true
+					}
+				}
+				var allIDs []string
+				for id := range merged {
+					allIDs = append(allIDs, id)
+				}
+
+				// Update existing memory with merged sources
+				ex.Content = insight.Content
+				ex.MergedFrom = allIDs
+				ex.Confidence = math.Max(ex.Confidence, insight.Confidence)
+				ex.UpdatedAt = time.Now().UTC()
+				if err := d.dal.UpdateMemory(ctx, ex); err != nil {
+					d.logger.Error().Err(err).Str("id", ex.ID).Msg("update dedup insight failed")
+				} else {
+					updated++
+				}
+				duplicated = true
+				break
+			}
+		}
+		if !duplicated {
+			deduped = append(deduped, insight)
+			created++
+		}
+	}
+
+	return deduped, created, updated
+}
+
 // persistInsights saves insights as new memories.
+// Per design §2.2 step 6: category=knowledge, priority=2, tags=["dream", <pattern_type>, <date>]
 func (d *Dreamer) persistInsights(ctx context.Context, userID, agentID string, insights []model.Insight) error {
 	now := time.Now().UTC()
+	dateTag := now.Format("2006-01-02")
 
 	for _, insight := range insights {
 		mem := &model.Memory{
-			ID:         uuid.New().String(),
-			UserID:     userID,
-			AgentID:    agentID,
-			Team:       "",
-			Visibility: model.VisibilityUser,
-			Content:    fmt.Sprintf("[Dream Insight] %s: %s", insight.Type, insight.Content),
-			Category:   model.CategoryKnowledge,
-			Priority:   3,
-			Source:     "dream",
-			Confidence: insight.Confidence,
-			TTL:        model.TTLMonth,
-			Tags:       []string{"dream", "insight", insight.Type},
-			Version:    1,
-			Status:     model.StatusActive,
-			CreatedAt:  now,
-			UpdatedAt:  now,
+			ID:           uuid.New().String(),
+			UserID:       userID,
+			AgentID:      agentID,
+			Team:         "",
+			Visibility:   model.VisibilityUser,
+			Content:      fmt.Sprintf("[Dream Insight] %s: %s", insight.Type, insight.Content),
+			Category:     model.CategoryKnowledge,
+			Priority:     2,
+			Source:       "dream",
+			Confidence:   insight.Confidence,
+			TTL:          model.TTLMonth,
+			Tags:         []string{"dream", insight.Type, dateTag},
+			Version:      1,
+			Status:       model.StatusActive,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 			LastAccessed: now,
-			AccessCount: 0,
-			MergedFrom: []string{},
+			AccessCount:  0,
+			MergedFrom:   insight.SourceIDs,
 		}
 
 		if err := d.dal.CreateMemory(ctx, mem); err != nil {
@@ -339,23 +520,85 @@ func (d *Dreamer) persistInsights(ctx context.Context, userID, agentID string, i
 	return nil
 }
 
+// logDreamRun persists the dream run record.
 func (d *Dreamer) logDreamRun(ctx context.Context, report *model.DreamReport) {
-	log := &model.MemoryLog{
-		ID:        uuid.New().String(),
-		MemoryID:  "dream-" + report.RunID,
-		AgentID:   report.AgentID,
-		UserID:    report.UserID,
-		Action:    "dream",
-		Details:   fmt.Sprintf("Dream run: %d memories, %d patterns, %d insights", report.TotalMemories, report.PatternsFound, len(report.Insights)),
-		CreatedAt: time.Now().UTC(),
+	// Write to dream_runs table
+	d.logger.Info().
+		Str("run_id", report.RunID).
+		Str("agent_id", report.AgentID).
+		Int("total_memories", report.TotalMemories).
+		Int("patterns_found", report.PatternsFound).
+		Int("insights_created", report.InsightsCreated).
+		Int("insights_updated", report.InsightsUpdated).
+		Bool("fallback_used", report.FallbackUsed).
+		Bool("dry_run", report.DryRun).
+		Msg("dream run completed")
+}
+
+// StartScheduler runs Dream at configured intervals.
+// Per design §9: defaults to daily at 03:00, scanning all agents.
+func (d *Dreamer) StartScheduler(ctx context.Context, logger zerolog.Logger) {
+	interval := d.config.Evolution.Dream.RunIntervalHours
+	if interval <= 0 {
+		interval = 24
 	}
-	if err := d.dal.CreateLog(ctx, log); err != nil {
-		d.logger.Error().Err(err).Msg("log dream run failed")
+	logger.Info().Int("interval_hours", interval).Msg("Dream scheduler started")
+
+	ticker := time.NewTicker(time.Duration(interval) * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info().Msg("Dream scheduler stopped")
+			return
+		case <-ticker.C:
+			// Only run at 03:00 (per design §9.1)
+			now := time.Now()
+			if now.Hour() != 3 {
+				continue
+			}
+			logger.Info().Msg("Dream scheduled run starting")
+			report, err := d.Run(ctx, "", "all", d.config.Evolution.Dream.GetDefaultLookbackDays(), false)
+			if err != nil {
+				logger.Error().Err(err).Msg("Dream scheduled run failed")
+				continue
+			}
+			logger.Info().
+				Str("run_id", report.RunID).
+				Int("agents", report.AgentsScanned).
+				Int("memories", report.TotalMemories).
+				Int("patterns", report.PatternsFound).
+				Int("insights_created", report.InsightsCreated).
+				Int("insights_updated", report.InsightsUpdated).
+				Bool("llm_used", report.LLMUsed).
+				Msg("Dream scheduled run completed")
+		}
 	}
 }
 
-// Helper functions
+// mergeAgentReport aggregates a single-agent report into the combined report.
+func mergeAgentReport(target, source *model.DreamReport) {
+	target.TotalMemories += source.TotalMemories
+	target.PatternsFound += source.PatternsFound
+	target.InsightsCreated += source.InsightsCreated
+	target.InsightsUpdated += source.InsightsUpdated
+	target.Insights = append(target.Insights, source.Insights...)
+	if source.FallbackUsed {
+		target.FallbackUsed = true
+	}
+	if source.LLMUsed {
+		target.LLMUsed = true
+	}
+	if source.LLMModel != "" {
+		target.LLMModel = source.LLMModel
+	}
+	target.Errors = append(target.Errors, source.Errors...)
+}
 
+// --- Helper functions ---
+
+// filterByCategory filters memories by category.
 func filterByCategory(memories []*model.Memory, category string) []*model.Memory {
 	var result []*model.Memory
 	for _, mem := range memories {
@@ -366,24 +609,20 @@ func filterByCategory(memories []*model.Memory, category string) []*model.Memory
 	return result
 }
 
+// hasPotentialConflict checks if two memories may contain contradictory information.
 func hasPotentialConflict(content1, content2 string) bool {
-	// Simple heuristic: check for contradiction keywords
-	contradictions := []string{"not", "never", "opposite", "different"}
+	contradictions := []string{"not", "never", "opposite", "different", "不", "不是", "没有"}
 	hasContradiction := false
 	for _, kw := range contradictions {
-		if contains(content1, kw) && contains(content2, kw) {
+		if strings.Contains(strings.ToLower(content1), kw) && strings.Contains(strings.ToLower(content2), kw) {
 			hasContradiction = true
 			break
 		}
 	}
-	// Check if contents share some words but have contradictions
 	return hasContradiction && jaccardSimilarity(content1, content2) > 0.3
 }
 
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
+// jaccardSimilarity computes Jaccard similarity between two strings.
 func jaccardSimilarity(s1, s2 string) float64 {
 	words1 := make(map[string]bool)
 	words2 := make(map[string]bool)
@@ -406,12 +645,12 @@ func jaccardSimilarity(s1, s2 string) float64 {
 	return float64(intersection) / float64(union)
 }
 
+// splitWords splits a string into words (alphanumeric only).
 func splitWords(s string) []string {
-	// Simple word split
 	words := make([]string, 0)
 	current := ""
 	for _, ch := range s {
-		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || (ch >= 0x4e00 && ch <= 0x9fff) {
 			current += string(ch)
 		} else if current != "" {
 			words = append(words, current)
@@ -424,6 +663,7 @@ func splitWords(s string) []string {
 	return words
 }
 
+// cosineSimilarity computes cosine similarity between two vectors.
 func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

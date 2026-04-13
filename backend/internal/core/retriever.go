@@ -180,8 +180,8 @@ func (r *Retriever) ListMemories(ctx context.Context, userID, agentID, team stri
 }
 
 // GetHealthReport generates a comprehensive health report.
-// Corresponds to DESIGN-012.
-func (r *Retriever) GetHealthReport(ctx context.Context, userID string) (*model.HealthReport, error) {
+// Corresponds to DESIGN-012, enhanced with heat scoring per evolution-design.md §4.4.
+func (r *Retriever) GetHealthReport(ctx context.Context, userID string, heatScorer *HeatScorer) (*model.HealthReport, error) {
 	report := &model.HealthReport{
 		ByCategory: make(map[string]int),
 		ByStatus:   make(map[string]int),
@@ -218,7 +218,63 @@ func (r *Retriever) GetHealthReport(ctx context.Context, userID string) (*model.
 		report.StaleMemories = append(report.StaleMemories, *m)
 	}
 
+	// Heat section (§4.4)
+	if heatScorer != nil {
+		report.Heat = buildHeatSection(allMemories, heatScorer)
+	}
+
 	return report, nil
+}
+
+// buildHeatSection builds heat statistics for the health report.
+func buildHeatSection(memories []*model.Memory, scorer *HeatScorer) *model.HeatSection {
+	type scored struct {
+		mem   *model.Memory
+		score float64
+	}
+	var all []scored
+	var dist model.HeatDistribution
+
+	for _, m := range memories {
+		s := scorer.Score(m)
+		all = append(all, scored{mem: m, score: s})
+		if s >= 70 {
+			dist.Hot70to100++
+		} else if s >= 30 {
+			dist.Warm30to70++
+		} else {
+			dist.Cold0to30++
+		}
+	}
+
+	// Sort by heat score
+	sort.Slice(all, func(i, j int) bool { return all[i].score > all[j].score })
+
+	topHot := make([]model.HeatReportItem, 0, 5)
+	for i := 0; i < len(all) && i < 5; i++ {
+		topHot = append(topHot, model.HeatReportItem{
+			ID:             all[i].mem.ID,
+			ContentPreview: truncateContent(all[i].mem.Content, 100),
+			HeatScore:      all[i].score,
+			AccessCount:    all[i].mem.AccessCount,
+		})
+	}
+
+	topCold := make([]model.HeatReportItem, 0, 5)
+	for i := len(all) - 1; i >= 0 && len(topCold) < 5; i-- {
+		topCold = append(topCold, model.HeatReportItem{
+			ID:             all[i].mem.ID,
+			ContentPreview: truncateContent(all[i].mem.Content, 100),
+			HeatScore:      all[i].score,
+			AccessCount:    all[i].mem.AccessCount,
+		})
+	}
+
+	return &model.HeatSection{
+		TopHot:       topHot,
+		TopCold:      topCold,
+		Distribution: dist,
+	}
 }
 
 // isVisible checks if a memory is visible to the given agent.

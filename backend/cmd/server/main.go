@@ -145,7 +145,7 @@ func main() {
 			r.Delete("/memories/{id}", handleDeleteMemory(db))
 			r.Post("/memories/batch", handleBatchWrite(writer))
 			r.Post("/memories/compress", handleCompress(compressor))
-			r.Get("/memories/report", handleReport(retriever))
+			r.Get("/memories/report", handleReport(retriever, heatScorer))
 			r.Post("/memories/export", handleExport(db))
 
 			r.Post("/dream", handleDream(dreamer))
@@ -169,6 +169,11 @@ func main() {
 	bgCtx, cancelTTL := context.WithCancel(context.Background())
 	defer cancelTTL()
 	go ttlMgr.StartScanLoop(bgCtx)
+
+	// Start Dream scheduler (§9: daily at 03:00).
+	if cfg.Evolution.Dream.Enabled {
+		go dreamer.StartScheduler(bgCtx, logger)
+	}
 
 	// Start server.
 	srv := &http.Server{
@@ -529,14 +534,14 @@ func handleCompress(compressor *core.Compressor) http.HandlerFunc {
 	}
 }
 
-func handleReport(retriever *core.Retriever) http.HandlerFunc {
+func handleReport(retriever *core.Retriever, heatScorer *core.HeatScorer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info := api.GetAgentInfo(r)
 		if info == nil {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		report, err := retriever.GetHealthReport(r.Context(), info.UserID)
+		report, err := retriever.GetHealthReport(r.Context(), info.UserID, heatScorer)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -663,7 +668,7 @@ func handleDream(dreamer *core.Dreamer) http.HandlerFunc {
 		if req.AgentID == "" {
 			req.AgentID = info.ID
 		}
-		report, err := dreamer.Run(r.Context(), req.UserID, req.AgentID)
+		report, err := dreamer.Run(r.Context(), req.UserID, req.AgentID, req.LookbackDays, req.DryRun)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
