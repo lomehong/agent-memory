@@ -73,7 +73,7 @@ func TestHeatScorer_Score(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score := scorer.Score(tt.memory)
+			score := scorer.Score(&tt.memory)
 			if score < tt.minScore || score > tt.maxScore {
 				t.Errorf("Score %.2f out of expected range [%.2f, %.2f]", score, tt.minScore, tt.maxScore)
 			}
@@ -91,7 +91,7 @@ func TestHeatScorer_DefaultConfig(t *testing.T) {
 		CreatedAt:    time.Now().AddDate(0, 0, -7),
 	}
 
-	score := scorer.Score(mem)
+	score := scorer.Score(&mem)
 	if score <= 0 || score > 100 {
 		t.Errorf("Score should be in [0, 100], got %.2f", score)
 	}
