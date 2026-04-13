@@ -3,7 +3,7 @@
 > 版本：v1.0  
 > 日期：2026-04-13  
 > 状态：待评审  
-> 需求来源：[Elo-Mario/openclaw-memory-system](https://github.com/Elo-Mario/openclaw-memory-system) 对标分析 + 团队实际痛点
+
 
 ---
 
