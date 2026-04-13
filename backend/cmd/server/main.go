@@ -96,11 +96,11 @@ func main() {
 	// Init core services.
 	writer := core.NewWriter(db, embedProvider, vectorStore, cfg, &logger)
 	retriever := core.NewRetriever(db, embedProvider, vectorStore, cfg, &logger)
+	heatScorer := core.NewHeatScorer(cfg)
 	ttlMgr := core.NewTTLManager(db, cfg, heatScorer, &logger)
 	compressor := core.NewCompressor(db, embedProvider, vectorStore, cfg, &logger)
 	dreamer := core.NewDreamer(db, embedProvider, vectorStore, cfg, &logger)
 	reviewer := core.NewReviewer(db, embedProvider, vectorStore, cfg, &logger)
-	heatScorer := core.NewHeatScorer(cfg)
 
 	// Seed agents from config.
 	seedAgents(cfg, db, &logger)
