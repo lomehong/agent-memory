@@ -96,8 +96,11 @@ func main() {
 	// Init core services.
 	writer := core.NewWriter(db, embedProvider, vectorStore, cfg, &logger)
 	retriever := core.NewRetriever(db, embedProvider, vectorStore, cfg, &logger)
-	ttlMgr := core.NewTTLManager(db, cfg, &logger)
+	ttlMgr := core.NewTTLManager(db, cfg, heatScorer, &logger)
 	compressor := core.NewCompressor(db, embedProvider, vectorStore, cfg, &logger)
+	dreamer := core.NewDreamer(db, embedProvider, vectorStore, cfg, &logger)
+	reviewer := core.NewReviewer(db, embedProvider, vectorStore, cfg, &logger)
+	heatScorer := core.NewHeatScorer(cfg)
 
 	// Seed agents from config.
 	seedAgents(cfg, db, &logger)
@@ -144,6 +147,9 @@ func main() {
 			r.Post("/memories/compress", handleCompress(compressor))
 			r.Get("/memories/report", handleReport(retriever))
 			r.Post("/memories/export", handleExport(db))
+
+			r.Post("/dream", handleDream(dreamer))
+			r.Post("/review", handleReview(reviewer))
 
 			r.Post("/agents", handleCreateAgent(db))
 			r.Get("/agents", handleListAgents(db))
@@ -638,3 +644,63 @@ func handleDeleteAgent(db storage.DAL) http.HandlerFunc {
 }
 
 var _ = runtime.GC // ensure runtime is used
+
+func handleDream(dreamer *core.Dreamer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		info := api.GetAgentInfo(r)
+		if info == nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		var req model.DreamRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+			return
+		}
+		if req.UserID == "" {
+			req.UserID = info.UserID
+		}
+		if req.AgentID == "" {
+			req.AgentID = info.ID
+		}
+		report, err := dreamer.Run(r.Context(), req.UserID, req.AgentID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
+	}
+}
+
+func handleReview(reviewer *core.Reviewer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		info := api.GetAgentInfo(r)
+		if info == nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		var req model.ReviewRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+			return
+		}
+		userID := info.UserID
+		agentID := info.ID
+		if req.AgentID != "" {
+			agentID = req.AgentID
+		}
+		// Parse since time (default 7 days)
+		since := time.Now().AddDate(0, 0, -7)
+		if req.Since != "" {
+			if t, err := time.Parse(time.RFC3339, req.Since); err == nil {
+				since = t
+			}
+		}
+		report, err := reviewer.Review(r.Context(), userID, agentID, since)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, report)
+	}
+}

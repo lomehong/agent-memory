@@ -101,6 +101,20 @@ func (s *SQLiteStore) createTables() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agents_api_key_hash ON agents(api_key_hash)`,
+			`CREATE TABLE IF NOT EXISTS dream_runs (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				agent_id TEXT NOT NULL,
+				started_at DATETIME NOT NULL,
+				completed_at DATETIME NOT NULL,
+				total_memories INTEGER NOT NULL,
+				patterns_found INTEGER NOT NULL,
+				insights_count INTEGER NOT NULL,
+				errors TEXT NOT NULL DEFAULT '[]',
+				fallback_used INTEGER NOT NULL DEFAULT 0
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_dream_runs_user_id ON dream_runs(user_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_dream_runs_agent_id ON dream_runs(agent_id)`,
 	}
 	for _, q := range queries {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {

@@ -24,6 +24,7 @@ type Config struct {
 	Governance GovernanceConfig `yaml:"governance"`
 	Logging    LoggingConfig    `yaml:"logging"`
 	Monitoring MonitoringConfig `yaml:"monitoring"`
+	Evolution  EvolutionConfig   `yaml:"evolution"`
 }
 
 type ServerConfig struct {
@@ -296,6 +297,102 @@ type AdminEntry struct {
 type MonitoringConfig struct {
 	Enabled     bool   `yaml:"enabled"`
 	MetricsPath string `yaml:"metrics_path"`
+}
+
+// EvolutionConfig defines memory evolution parameters.
+// Corresponds to REQ-030: Dream & Review evolution.
+type EvolutionConfig struct {
+	Dream  DreamConfig  `yaml:"dream"`
+	Review ReviewConfig `yaml:"review"`
+	LLM    LLMConfig    `yaml:"llm"`
+	Heat   HeatConfig   `yaml:"heat"`
+}
+
+// DreamConfig defines dream evolution parameters.
+type DreamConfig struct {
+	Enabled             bool    `yaml:"enabled"`
+	MinMemories         int     `yaml:"min_memories"`           // 最少记忆数才触发，默认 3
+	MaxInsights         int     `yaml:"max_insights"`           // 单次最多生成洞察数，默认 10
+	DefaultLookbackDays int     `yaml:"default_lookback_days"`  // 默认回溯天数，默认 7
+	PatternThreshold    float64 `yaml:"pattern_threshold"`     // 重复模式相似度阈值，默认 0.7
+	InsightDedupThreshold float64 `yaml:"insight_dedup_threshold"` // 洞察去重阈值，默认 0.85
+	MaxSourceMemories   int     `yaml:"max_source_memories"`   // 单条洞察最大关联源记忆数，默认 20
+	RunIntervalHours    int     `yaml:"run_interval_hours"`
+}
+
+func (d DreamConfig) GetDefaultLookbackDays() int {
+	if d.DefaultLookbackDays > 0 { return d.DefaultLookbackDays }
+	return 7
+}
+func (d DreamConfig) GetPatternThreshold() float64 {
+	if d.PatternThreshold > 0 { return d.PatternThreshold }
+	return 0.7
+}
+func (d DreamConfig) GetInsightDedupThreshold() float64 {
+	if d.InsightDedupThreshold > 0 { return d.InsightDedupThreshold }
+	return 0.85
+}
+func (d DreamConfig) GetMaxSourceMemories() int {
+	if d.MaxSourceMemories > 0 { return d.MaxSourceMemories }
+	return 20
+}
+
+// ReviewConfig defines memory review parameters.
+type ReviewConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	MinConfidence      float64  `yaml:"min_confidence"`        // 最低置信度，默认 0.5
+	StaleThresholdDays int     `yaml:"stale_threshold_days"` // 陈旧记忆天数阈值，默认 30
+	ErrorKeywords      []string `yaml:"error_keywords"`       // 五问分析错误关键词
+	RunIntervalHours   int     `yaml:"run_interval_hours"`
+}
+
+func (r ReviewConfig) GetMinConfidence() float64 {
+	if r.MinConfidence > 0 { return r.MinConfidence }
+	return 0.5
+}
+func (r ReviewConfig) GetStaleThresholdDays() int {
+	if r.StaleThresholdDays > 0 { return r.StaleThresholdDays }
+	return 30
+}
+func (r ReviewConfig) GetErrorKeywords() []string {
+	if len(r.ErrorKeywords) > 0 { return r.ErrorKeywords }
+	return []string{"失败", "错误", "bug", "问题", "异常", "error", "fail", "超时", "timeout"}
+}
+
+// LLMConfig defines LLM client parameters for evolution.
+type LLMConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	APIKey         string `yaml:"api_key"`
+	BaseURL        string `yaml:"base_url"`
+	Model          string `yaml:"model"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+	MaxTokens      int    `yaml:"max_tokens"`
+}
+
+func (l LLMConfig) GetTimeoutSeconds() int {
+	if l.TimeoutSeconds > 0 { return l.TimeoutSeconds }
+	return 10
+}
+func (l LLMConfig) GetMaxTokens() int {
+	if l.MaxTokens > 0 { return l.MaxTokens }
+	return 2000
+}
+
+// HeatConfig defines heat scoring parameters.
+type HeatConfig struct {
+	FrequencyWeight    float64 `yaml:"frequency_weight"`     // 访问频率权重，默认 0.6
+	RecencyWeight      float64 `yaml:"recency_weight"`       // 时间衰减权重，默认 0.4
+	HeatThreshold      float64 `yaml:"heat_threshold"`       // 降级热度阈值，默认 30
+	ExtensionMultiplier float64 `yaml:"extension_multiplier"` // 高热度 TTL 延长倍数，默认 1.5
+}
+
+func (h HeatConfig) GetHeatThreshold() float64 {
+	if h.HeatThreshold > 0 { return h.HeatThreshold }
+	return 30
+}
+func (h HeatConfig) GetExtensionMultiplier() float64 {
+	if h.ExtensionMultiplier > 0 { return h.ExtensionMultiplier }
+	return 1.5
 }
 
 // envVarRe matches ${VAR} or ${VAR:-default} patterns.

@@ -11,16 +11,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// TTLManager manages memory lifecycle through TTL-based expiration.
-// Corresponds to DESIGN-010.
+// TTLManager manages memory lifecycle through TTL-based expiration with heat-aware degradation.
+// Corresponds to DESIGN-010, enhanced with heat scoring per evolution-design.md.
 type TTLManager struct {
-	dal    storage.DAL
-	config *config.Config
-	logger *zerolog.Logger
+	dal        storage.DAL
+	config     *config.Config
+	heatScorer *HeatScorer
+	logger     *zerolog.Logger
 }
 
-func NewTTLManager(dal storage.DAL, cfg *config.Config, logger *zerolog.Logger) *TTLManager {
-	return &TTLManager{dal: dal, config: cfg, logger: logger}
+func NewTTLManager(dal storage.DAL, cfg *config.Config, heatScorer *HeatScorer, logger *zerolog.Logger) *TTLManager {
+	return &TTLManager{dal: dal, config: cfg, heatScorer: heatScorer, logger: logger}
 }
 
 // Scan scans for expired memories and updates their status per DESIGN-010:
@@ -53,6 +54,21 @@ func (tm *TTLManager) Scan(ctx context.Context) error {
 		degradeThreshold := ttlDuration * time.Duration(tm.config.TTL.GetDegradeMultiplier())
 
 		if idleSinceAccess >= degradeThreshold {
+			// Heat-aware check: high-heat memories get TTL extension instead of degradation
+			if tm.heatScorer != nil {
+				heatScore := tm.heatScorer.Score(m)
+				heatThreshold := tm.config.Evolution.Heat.GetHeatThreshold()
+				if heatScore >= heatThreshold {
+					// Extend TTL by logging the extension (memory stays active)
+					tm.logger.Debug().
+						Str("id", m.ID).
+						Float64("heat_score", heatScore).
+						Msg("TTL extended due to high heat score")
+					tm.logAction(ctx, m.ID, "heat_extended", fmt.Sprintf("heat_score=%.1f >= threshold=%.1f, TTL extended", heatScore, heatThreshold))
+					continue
+				}
+			}
+
 			if err := tm.dal.UpdateMemoryStatus(ctx, m.ID, model.StatusDegraded); err != nil {
 				tm.logger.Error().Err(err).Str("id", m.ID).Msg("degrade failed")
 				continue

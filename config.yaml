@@ -95,6 +95,45 @@ governance:
   max_tags_per_memory: 20
   max_content_length: 10000
 
+# 进化系统配置
+evolution:
+  dream:
+    enabled: true
+    min_memories: 3
+    max_insights: 10
+    default_lookback_days: 7
+    pattern_threshold: 0.7
+    insight_dedup_threshold: 0.85
+    max_source_memories: 20
+    run_interval_hours: 24
+  review:
+    enabled: true
+    min_confidence: 0.5
+    stale_threshold_days: 30
+    error_keywords:
+      - "失败"
+      - "错误"
+      - "bug"
+      - "问题"
+      - "异常"
+      - "error"
+      - "fail"
+      - "超时"
+      - "timeout"
+    run_interval_hours: 24
+  llm:
+    enabled: true
+    api_key: "${GLM_API_KEY:-}"
+    base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+    model: "glm-5-turbo"
+    timeout_seconds: 10
+    max_tokens: 2000
+  heat:
+    frequency_weight: 0.6
+    recency_weight: 0.4
+    heat_threshold: 30
+    extension_multiplier: 1.5
+
 logging:
   level: "info"
 

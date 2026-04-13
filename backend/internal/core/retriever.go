@@ -235,3 +235,10 @@ func isVisible(mem *model.Memory, agentID, team string) bool {
 		return false
 	}
 }
+
+func truncateContent(content string, maxLen int) string {
+	if len(content) <= maxLen {
+		return content
+	}
+	return content[:maxLen] + "..."
+}
